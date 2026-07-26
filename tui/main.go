@@ -1011,6 +1011,10 @@ type model struct {
 	height            int
 	lastPreviewKey    string // identity of the entry last rendered into preview
 	showRestartPrompt bool
+	// restartHint is set instead of showRestartPrompt when the apply
+	// succeeded but another config may override the keys: the warning stays
+	// on screen, and `y` opens the restart dialog on demand.
+	restartHint bool
 
 	// Tag filtering, opened with `t`. allEntries is the unfiltered catalog;
 	// the list itself only ever holds what the active tags leave, so
@@ -1516,6 +1520,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showEditPicker = true
 				m.editPickIndex = 0
 				return m, nil
+			case m.restartHint && key.Matches(msg, key.NewBinding(key.WithKeys("y", "Y"))):
+				m.restartHint = false
+				m.showRestartPrompt = true
+				return m, nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
 				if item, ok := m.list.SelectedItem().(entry); ok {
 					out, err := applyEntry(m.dir, item)
@@ -1536,16 +1544,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// the success line rather than scrolling past behind it.
 						warning := firstWarningLine(out)
 						if warning != "" {
-							m.status = warning
+							// The write itself went through — the warning is
+							// only about a possible later override — so the
+							// restart offer stays available, as a hint the
+							// warning can sit next to rather than a popup
+							// that would cover it.
+							m.status = warning + "  ·  " + txtRestartHint()
 							m.statusOK = false
 						}
 						m.current = currentSelections(m.dir)
-						// Offering a restart is only honest when restarting
-						// would change something. If another config is
-						// overriding these keys, it will override them again
-						// on the next launch, so leave the warning on screen
-						// rather than covering it with a prompt that cannot help.
 						m.showRestartPrompt = warning == ""
+						m.restartHint = warning != ""
 						recordRecent(item.recentKey())
 					}
 				}

@@ -251,6 +251,12 @@ func txtRestartBody() string {
 func txtRestartAsk() string { return tr("現在重新啟動 Ghostty 嗎？", "Restart Ghostty now?") }
 func txtRestartYes() string { return tr("[y] 是，重啟", "[y] yes, restart") }
 func txtRestartNo() string  { return tr("[n] 否，稍後手動重啟", "[n] no, I'll restart later") }
+
+// txtRestartHint is appended to the override warning. The write itself did
+// succeed — only some other config may override it — so a restart is still
+// worth offering, just not as an automatic popup.
+func txtRestartHint() string { return tr("重啟請按 Y", "press Y to restart") }
+
 func txtConfirmFoot() string {
 	return tr("[enter] 確定   [esc] 取消", "[enter] confirm   [esc] cancel")
 }
