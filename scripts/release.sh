@@ -53,6 +53,7 @@ echo "    $tag from main, tap in sync"
 
 step "checks"
 ./scripts/check.sh || die "scripts/check.sh failed"
+./scripts/test-writes.sh >/dev/null || die "scripts/test-writes.sh failed — run it directly to see which assertion"
 (cd tui && go build ./...) || die "go build failed"
 (cd tui && go vet ./...) || die "go vet failed"
 

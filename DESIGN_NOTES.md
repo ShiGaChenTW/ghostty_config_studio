@@ -57,9 +57,12 @@ only settle which face wins.
 applied afterwards, so every key it sets beats the managed block. A selection
 then appears to do nothing at all with no error anywhere to explain it, which
 is why `apply_selection` names the file and the shadowed keys instead of
-reporting a silent success. The TUI also suppresses its restart prompt in that
-case: restarting re-reads the same overriding file, so offering it would be a
-lie.
+reporting a silent success. The TUI used to also suppress its restart prompt in
+that case, on the grounds that restarting re-reads the same overriding file. That
+was over-corrected: the write itself did land, and the warning is about keys that
+*may* be overridden, so suppressing the prompt left a red line and no way
+forward. The warning now ends with "press Y to restart" and `y` opens the same
+dialog the silent path pops automatically.
 
 **An empty value is worse than an error.** Writing `key = ` parses fine and is
 then silently ignored by Ghostty, so the UI would show a setting as active
