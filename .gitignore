@@ -4,3 +4,6 @@
 # Optional config packs are fetched on demand by ghostty-setup into
 # ~/.config/ghostty-config-studio/assets — deliberately outside this tree, so
 # they survive brew upgrades and belong to their upstream authors, not us.
+
+# macOS
+.DS_Store

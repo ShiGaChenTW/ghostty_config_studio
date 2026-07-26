@@ -4,8 +4,10 @@ A terminal workbench for [Ghostty](https://ghostty.org): browse and apply
 themes, and build your own config files field by field — without hand-writing
 config syntax or memorising key names.
 
-**[English](#english) · [繁體中文](#繁體中文)** — the app itself is bilingual too.
-Press `L` on any screen to switch; your choice is remembered.
+**[Website](https://shigachentw.github.io/ghostty_config_studio/)** · **[English](#english)** · **[繁體中文](#繁體中文)**
+
+The app itself is bilingual too. Press `L` on any screen to switch; your choice
+is remembered, and the shell commands follow it.
 
 ```
   GHOSTTY CONFIG STUDIO  ·  Browser                              489 items
@@ -78,16 +80,14 @@ ghostty-setup
 
 ```
   1) [  --  ] snedea      12 visual themes with GLSL shaders
-  2) [已匯入] naydenoff   6 color themes + 4 fonts + 5 full presets
+  2) [ done ] naydenoff   6 color themes, 4 fonts, 5 full presets
   3) [  --  ] sahaj-b     7 cursor-effect shaders
 
-  a) 全部匯入          import all
-  r) 移除全部素材      remove everything (back to a blank workbench)
-  q) 離開              quit
+  a) import all
+  r) remove everything (back to a blank workbench)
+  q) quit
 ```
 
-> The TUI is fully bilingual; the shell commands still prompt in Traditional
-> Chinese only.
 
 Pick packs **individually**, remove them any time, or import nothing at all.
 Everything imported — and every config you create — lives in
@@ -99,7 +99,7 @@ Everything imported — and every config you create — lives in
 | Key | Action |
 |-----|--------|
 | `↑`/`↓` | Move; the right pane previews as you go |
-| `/` | Fuzzy search (works in Chinese too) |
+| `/` | Fuzzy search over name, source, tag and description |
 | `enter` | Apply the selected item |
 | `s` | Save the current combination as a custom preset |
 | `n` | Create a new config and open the settings editor |
@@ -131,7 +131,9 @@ the accepted range.
 
 ### Command line
 
-Each category also has a standalone numbered-menu command:
+Each category also has a standalone numbered-menu command. They read the same
+language file the TUI writes, so pressing `L` in the TUI also switches what
+these print.
 
 ```bash
 ghostty-theme              # themes (--search browses the built-in 460+)
@@ -266,7 +268,7 @@ Ghostty Config Studio — 素材匯入
 | 按鍵 | 動作 |
 |------|------|
 | `↑`/`↓` | 移動，右側即時預覽 |
-| `/` | 模糊搜尋（中文也可以，例如 `/游標`、`/retro`） |
+| `/` | 模糊搜尋，比對名稱、來源、分類標籤與描述（例如 `/retro`） |
 | `enter` | 套用選中的項目 |
 | `s` | 把目前套用的組合存成自訂 preset |
 | `n` | 新建一個自訂設定檔，進入設定編輯器 |
@@ -296,7 +298,8 @@ Ghostty Config Studio — 素材匯入
 
 ### 指令列介面
 
-TUI 之外，每個分類也有獨立的數字選單指令：
+TUI 之外，每個分類也有獨立的數字選單指令。它們讀的是 TUI 寫的同一個語言設定，
+所以在 TUI 按 `L` 也會一併換掉這些指令的輸出語言。
 
 ```bash
 ghostty-theme              # 主題（含 --search 搜尋內建 460+ 個）

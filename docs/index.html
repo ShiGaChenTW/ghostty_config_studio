@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghostty Config Studio</title>
+<meta name="description" content="A terminal workbench for Ghostty: browse themes with real color previews, and build config files field by field across all 200 settings.">
+<meta property="og:title" content="Ghostty Config Studio">
+<meta property="og:description" content="Browse Ghostty themes with real color previews. Build config files field by field across all 200 settings. Bilingual, non-destructive, one brew command.">
+<meta property="og:image" content="img/browser-zh.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+/* ------------------------------------------------------------------ *
+ * Palette lifted from the product itself (tui/main.go), not invented:
+ * the banner orange, its drop-shadow brown, and the phosphor green the
+ * TUI uses to mark what is currently applied.
+ *
+ * Committed to a single dark theme on purpose. Every screenshot on this
+ * page is a real terminal capture on #0D0B09; a light mode would drop
+ * ten dark rectangles onto a white page and read as broken, not as an
+ * alternative.
+ * ------------------------------------------------------------------ */
+:root {
+  --ink:        #0D0B09;
+  --ink-2:      #14110E;
+  --ink-3:      #1B1713;
+  --orange:     #E07818;
+  --orange-hot: #FF8C21;
+  --shadow:     #2A1606;
+  --fg:         #EAEAEA;
+  --dim:        #9A9A96;
+  --frame:      #3A3733;
+  --green:      #4AF626;
+  --on-orange:  #170C02;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono",
+          "Cascadia Mono", Menlo, Consolas, "Sarasa Mono TC",
+          "PingFang TC", "Noto Sans TC", monospace;
+
+  --step: clamp(1rem, 0.6rem + 1.4vw, 1.5rem);
+  --gutter: clamp(1.25rem, 4vw, 4rem);
+  --max: 1360px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: clamp(15px, 0.9rem + 0.15vw, 16.5px);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+img { max-width: 100%; height: auto; display: block; }
+a { color: var(--orange); text-underline-offset: 3px; }
+a:hover { color: var(--orange-hot); }
+:focus-visible { outline: 2px solid var(--orange-hot); outline-offset: 3px; }
+
+.wrap { width: 100%; max-width: var(--max); margin-inline: auto; padding-inline: var(--gutter); }
+
+h1, h2, h3 { margin: 0; font-weight: 700; line-height: 1.15; text-wrap: balance; letter-spacing: -0.02em; }
+h1 { font-size: clamp(1.55rem, 0.9rem + 2.1vw, 2.5rem); }
+h2 { font-size: clamp(1.6rem, 1.1rem + 2vw, 2.6rem); }
+h3 { font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.25rem); letter-spacing: 0; }
+p  { margin: 0; max-width: 62ch; }
+.lede { color: var(--dim); font-size: clamp(1rem, 0.95rem + 0.3vw, 1.12rem); }
+
+/* Hard offset blocks, the same shadow treatment the TUI draws under its
+   own title banner. No blur anywhere on the page. */
+.block-shadow { box-shadow: 10px 10px 0 var(--shadow); }
+
+/* ---------- nav ---------- */
+.nav {
+  position: sticky; top: 0; z-index: 20;
+  height: 64px; display: flex; align-items: center;
+  background: rgba(13,11,9,.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--frame);
+}
+.nav .wrap { display: flex; align-items: center; gap: 1.5rem; }
+.nav-mark { font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
+.nav-mark span { color: var(--orange); }
+.nav-links { margin-left: auto; display: flex; align-items: center; gap: 1.4rem; }
+.nav-links a { color: var(--dim); text-decoration: none; white-space: nowrap; font-size: .9rem; }
+.nav-links a:hover { color: var(--fg); }
+@media (max-width: 860px) { .nav-links .opt { display: none; } }
+
+.lang-btn {
+  font: inherit; font-size: .85rem;
+  background: transparent; color: var(--orange);
+  border: 1px solid var(--orange); border-radius: 0;
+  padding: .3rem .7rem; cursor: pointer; white-space: nowrap;
+  transition: background .18s, color .18s;
+}
+.lang-btn:hover { background: var(--orange); color: var(--on-orange); }
+
+/* ---------- hero ---------- */
+.hero { padding-top: clamp(3rem, 6vw, 5.5rem); padding-bottom: clamp(3rem, 7vw, 6rem); }
+.hero-grid {
+  display: grid; gap: clamp(2rem, 4vw, 3.5rem);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+@media (min-width: 1000px) {
+  .hero-grid { grid-template-columns: minmax(0, 52fr) minmax(0, 48fr); }
+  /* Let the capture run past the container edge so the hero reads as a
+     window onto the app rather than a framed thumbnail. */
+  .hero-shot { margin-right: calc(var(--gutter) * -1 - 3vw); }
+}
+.hero h1 .accent { color: var(--orange); }
+.hero .lede { margin-top: 1.4rem; }
+.cta-row { margin-top: 2.2rem; display: flex; flex-wrap: wrap; gap: 1rem; }
+
+.btn {
+  display: inline-block; font: inherit; font-weight: 700;
+  padding: .8rem 1.6rem; border: 1px solid var(--orange);
+  text-decoration: none; white-space: nowrap; border-radius: 0;
+  transition: transform .14s, box-shadow .14s, background .14s, color .14s;
+}
+.btn-primary { background: var(--orange); color: var(--on-orange); box-shadow: 6px 6px 0 var(--shadow); }
+.btn-primary:hover { color: var(--on-orange); background: var(--orange-hot); }
+.btn-ghost { background: transparent; color: var(--orange); box-shadow: 6px 6px 0 var(--shadow); }
+.btn-ghost:hover { background: var(--ink-3); color: var(--orange-hot); }
+/* Press it toward its own shadow. */
+.btn:active { transform: translate(3px, 3px); box-shadow: 3px 3px 0 var(--shadow); }
+
+.shot { border: 1px solid var(--frame); background: var(--ink); }
+
+/* ---------- install band ---------- */
+.install { background: var(--orange); color: var(--on-orange); padding-block: clamp(2.5rem, 5vw, 3.75rem); }
+.install h2 { color: var(--on-orange); }
+.install p { color: #3A1D05; margin-top: .6rem; }
+.install-inner { display: grid; gap: 1.75rem; align-items: end; grid-template-columns: minmax(0,1fr); }
+@media (min-width: 900px) { .install-inner { grid-template-columns: minmax(0, 38fr) minmax(0, 62fr); } }
+
+.cmd {
+  display: flex; align-items: stretch; gap: 0;
+  background: var(--ink); border: 1px solid var(--shadow);
+  box-shadow: 8px 8px 0 var(--shadow);
+}
+.cmd code {
+  flex: 1; min-width: 0; padding: 1rem 1.15rem; color: var(--fg);
+  font-size: clamp(.85rem, .75rem + .5vw, 1.05rem);
+  overflow-x: auto; white-space: nowrap;
+}
+.cmd code::before { content: "$ "; color: var(--orange); }
+.copy {
+  flex: none; font: inherit; font-size: .82rem; cursor: pointer;
+  background: var(--ink-3); color: var(--dim);
+  border: 0; border-left: 1px solid var(--frame); padding-inline: 1.1rem;
+  transition: color .18s, background .18s;
+}
+.copy:hover { color: var(--fg); background: var(--frame); }
+.copy[data-done="1"] { color: var(--green); }
+
+/* ---------- generic section ---------- */
+section { padding-block: clamp(3.5rem, 8vw, 7rem); }
+.rule { border: 0; border-top: 1px solid var(--frame); margin: 0; }
+
+.split { display: grid; gap: clamp(2rem, 4vw, 3.5rem); grid-template-columns: minmax(0,1fr); align-items: center; }
+@media (min-width: 1000px) {
+  .split { grid-template-columns: minmax(0, 58fr) minmax(0, 42fr); }
+  .split.flip > :first-child { order: 2; }
+}
+.split h2 + p, .stack h2 + p { margin-top: 1.1rem; }
+
+.facts { margin: 1.75rem 0 0; padding: 0; list-style: none; display: grid; gap: .9rem; }
+.facts li { display: grid; grid-template-columns: 1.5rem 1fr; gap: .5rem; color: var(--dim); }
+.facts b { color: var(--fg); font-weight: 700; }
+.facts .key { color: var(--orange); font-weight: 700; }
+
+/* ---------- bilingual comparison ---------- */
+.compare { display: grid; gap: clamp(1.25rem, 2.5vw, 2rem); grid-template-columns: minmax(0,1fr); }
+@media (min-width: 900px) { .compare { grid-template-columns: 1fr 1fr; } }
+.compare figure { margin: 0; }
+.compare figcaption { margin-top: .7rem; color: var(--dim); font-size: .85rem; }
+.compare figcaption b { color: var(--fg); }
+
+/* ---------- managed block ---------- */
+.stack { display: grid; gap: clamp(1.5rem, 3vw, 2.25rem); }
+pre.code {
+  margin: 0; padding: 1.4rem 1.5rem; overflow-x: auto;
+  background: var(--ink-2); border: 1px solid var(--frame);
+  color: var(--dim); font-size: .88rem; line-height: 1.75;
+}
+pre.code .c { color: #6C6C6C; }
+pre.code .k { color: var(--orange); }
+.note { border-left: 3px solid var(--orange); padding-left: 1.1rem; color: var(--dim); }
+.note b { color: var(--fg); }
+
+/* ---------- packs + cli ---------- */
+.duo { display: grid; gap: clamp(2rem, 4vw, 3rem); grid-template-columns: minmax(0,1fr); align-items: start; }
+@media (min-width: 1000px) { .duo { grid-template-columns: minmax(0, 47fr) minmax(0, 53fr); } }
+.cmdlist { margin: 1.5rem 0 0; padding: 0; list-style: none; font-size: .92rem; }
+.cmdlist li { display: grid; grid-template-columns: minmax(0, 14rem) 1fr; gap: 1rem; padding: .55rem 0; }
+.cmdlist li + li { border-top: 1px solid var(--ink-3); }
+.cmdlist code { color: var(--orange); white-space: nowrap; }
+.cmdlist span { color: var(--dim); }
+@media (max-width: 560px) { .cmdlist li { grid-template-columns: minmax(0,1fr); gap: .15rem; } }
+
+/* ---------- keys ---------- */
+.keycols { display: grid; gap: clamp(2rem, 4vw, 3.5rem); grid-template-columns: minmax(0,1fr); }
+@media (min-width: 820px) { .keycols { grid-template-columns: 1fr 1fr; } }
+.keys { margin: 1.25rem 0 0; padding: 0; list-style: none; }
+.keys li { display: grid; grid-template-columns: 6.5rem 1fr; gap: 1rem; padding: .5rem 0; color: var(--dim); }
+.keys li + li { border-top: 1px solid var(--ink-3); }
+kbd {
+  font: inherit; font-size: .82rem; color: var(--fg);
+  background: var(--ink-3); border: 1px solid var(--frame);
+  padding: .1rem .5rem; white-space: nowrap; justify-self: start;
+}
+
+/* ---------- footer ---------- */
+footer { border-top: 1px solid var(--frame); padding-block: clamp(2.5rem, 5vw, 3.5rem); color: var(--dim); }
+.foot { display: grid; gap: 1.5rem; grid-template-columns: minmax(0,1fr); }
+@media (min-width: 760px) { .foot { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); } }
+.foot-links { display: flex; flex-wrap: wrap; gap: 1.25rem; }
+.foot-links a { text-decoration: none; }
+
+/* ---------- scroll reveal: sequencing only, one step per section ----------
+   Gated on the .js class the script adds to <html>. Content that starts at
+   opacity 0 and waits for an observer is content that disappears entirely if
+   the script never runs, so the hidden state only exists once something is
+   there to un-hide it. */
+@media (prefers-reduced-motion: no-preference) {
+  html.js .reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s cubic-bezier(.16,1,.3,1), transform .6s cubic-bezier(.16,1,.3,1); }
+  html.js .reveal.in { opacity: 1; transform: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <div class="nav-mark">GHOSTTY <span>CONFIG STUDIO</span></div>
+    <nav class="nav-links">
+      <a class="opt" href="#browser"  data-zh="主題瀏覽器" data-en="Browser">主題瀏覽器</a>
+      <a class="opt" href="#editor"   data-zh="設定編輯器" data-en="Editor">設定編輯器</a>
+      <a class="opt" href="#safety"   data-zh="運作方式"   data-en="How it works">運作方式</a>
+      <a href="https://github.com/ShiGaChenTW/ghostty_config_studio">GitHub</a>
+      <button class="lang-btn" id="lang" type="button" aria-label="Switch language">[L] English</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <h1 data-zh="Ghostty 全部設定，<span class=&quot;accent&quot;>用挑的不用打</span>"
+          data-en="Every Ghostty setting, <span class=&quot;accent&quot;>picked not typed</span>">Ghostty 全部設定，<span class="accent">用挑的不用打</span></h1>
+      <p class="lede"
+         data-zh="460+ 個主題邊移動邊看真實配色，200 個設定項目用勾選的建立設定檔。"
+         data-en="Preview 460+ themes in their real colors, and build your own config by ticking boxes across all 200 settings.">460+ 個主題邊移動邊看真實配色，200 個設定項目用勾選的建立設定檔。</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="#install" data-zh="安裝" data-en="Install">安裝</a>
+        <a class="btn btn-ghost" href="https://github.com/ShiGaChenTW/ghostty_config_studio" data-zh="原始碼" data-en="Source">原始碼</a>
+      </div>
+    </div>
+    <div class="hero-shot">
+      <img class="shot block-shadow" src="img/browser-zh.png" data-img="browser" width="1771" height="1056" fetchpriority="high"
+           alt="Ghostty Config Studio 的主題瀏覽器，左側是可搜尋的主題清單，右側預覽 snedea/aquarium 的背景、前景、游標與 16 色調色盤。">
+    </div>
+  </div>
+</section>
+
+<section class="install" id="install">
+  <div class="wrap install-inner">
+    <div>
+      <h2 data-zh="一行裝好" data-en="One command">一行裝好</h2>
+      <p data-zh="macOS 與 Ghostty 之外不需要別的。Go 只在 Homebrew 編譯時用到。"
+         data-en="Nothing beyond macOS and Ghostty. Go is only used at build time by Homebrew.">macOS 與 Ghostty 之外不需要別的。Go 只在 Homebrew 編譯時用到。</p>
+    </div>
+    <div class="cmd">
+      <code id="cmd">brew install shigachentw/tap/ghostty-config-studio</code>
+      <button class="copy" id="copy" type="button" data-zh="複製" data-en="Copy">複製</button>
+    </div>
+  </div>
+</section>
+
+<section id="browser" class="reveal">
+  <div class="wrap split">
+    <img class="shot block-shadow" src="img/search-zh.png" data-img="search" width="1784" height="1056"
+         alt="主題清單被搜尋字串 retro 過濾後，520 個項目只剩下 38 個復古風格的主題。">
+    <div>
+      <h2 data-zh="看得到顏色，才叫預覽" data-en="A preview that shows the colors">看得到顏色，才叫預覽</h2>
+      <p class="lede"
+         data-zh="游標移到哪，右邊就把那個主題的背景、前景、游標色和整組 16 色調色盤畫出來。不是丟一段設定檔原文給你自己想像。"
+         data-en="Move the cursor and the right pane draws that theme's background, foreground, cursor color and full 16-color palette. Not a dump of config text for you to imagine.">游標移到哪，右邊就把那個主題的背景、前景、游標色和整組 16 色調色盤畫出來。不是丟一段設定檔原文給你自己想像。</p>
+      <ul class="facts">
+        <li><span class="key">1</span><span data-zh="Ghostty 內建的 <b>460+ 個主題</b>直接讀取，不重新散布別人的檔案。" data-en="Reads the <b>460+ themes</b> already in your Ghostty install. Nothing redistributed.">Ghostty 內建的 <b>460+ 個主題</b>直接讀取，不重新散布別人的檔案。</span></li>
+        <li><span class="key">2</span><span data-zh="模糊搜尋比對名稱、來源、分類標籤與描述，例如 <b>/retro</b>、<b>/nord</b>。" data-en="Fuzzy search matches names, source, category tag and description, e.g. <b>/retro</b> or <b>/nord</b>.">模糊搜尋比對名稱、來源、分類標籤與描述，例如 <b>/retro</b>、<b>/nord</b>。</span></li>
+        <li><span class="key">3</span><span data-zh="每個項目都標了來源與風格標籤，<b>最近套用過的下次排最前面</b>。" data-en="Every entry is tagged by source and character. <b>Recently applied items sort to the top next launch.</b>">每個項目都標了來源與風格標籤，<b>最近套用過的下次排最前面</b>。</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="editor" class="reveal">
+  <div class="wrap split flip">
+    <img class="shot block-shadow" src="img/editor-zh.png" data-img="editor" width="1784" height="1056"
+         alt="設定編輯器的「外觀與顏色」分類頁，每一行是一個設定的英文鍵名、中文名稱與可填值範圍，右側顯示游標所在項目的完整說明。">
+    <div>
+      <h2 data-zh="200 個設定，全部附說明" data-en="All 200 settings, each explained">200 個設定，全部附說明</h2>
+      <p class="lede"
+         data-zh="Ghostty 的每個設定項目依用途分成 14 個分類頁。一行就寫清楚鍵名、它是什麼、可以填什麼。"
+         data-en="Every Ghostty setting, grouped into 14 category pages. One line tells you the key, what it does, and what it accepts.">Ghostty 的每個設定項目依用途分成 14 個分類頁。一行就寫清楚鍵名、它是什麼、可以填什麼。</p>
+      <ul class="facts">
+        <li><span class="key">1</span><span data-zh="用<b>空白鍵勾選</b>建立設定檔，不用手寫任何設定語法。" data-en="Build a config by <b>ticking boxes</b>. No config syntax to hand-write.">用<b>空白鍵勾選</b>建立設定檔，不用手寫任何設定語法。</span></li>
+        <li><span class="key">2</span><span data-zh="固定選項的設定<b>直接列出選項</b>用方向鍵挑，完全不用打字。" data-en="Fixed-choice settings <b>list their options</b> for arrow-key selection. No typing at all.">固定選項的設定<b>直接列出選項</b>用方向鍵挑，完全不用打字。</span></li>
+        <li><span class="key">3</span><span data-zh="自由數值的<b>預先帶入 Ghostty 預設值</b>，並標出可填範圍。" data-en="Free-value settings <b>prefill Ghostty's own default</b> and show the accepted range.">自由數值的<b>預先帶入 Ghostty 預設值</b>，並標出可填範圍。</span></li>
+        <li><span class="key">4</span><span data-zh="自己建立的設定檔可以隨時<b>回頭編輯或刪除</b>，匯入的則是唯讀。" data-en="Your own configs can be <b>edited or deleted</b> any time. Imported ones stay read-only.">自己建立的設定檔可以隨時<b>回頭編輯或刪除</b>，匯入的則是唯讀。</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="wrap compare" style="margin-top: clamp(2rem, 4vw, 3rem)">
+    <figure>
+      <img class="shot" src="img/picker-zh.png" data-img="picker" width="1137" height="356"
+           alt="alpha-blending 的選項清單，列出 native、linear、linear-corrected 三個值，並標示 native 是 Ghostty 預設。">
+      <figcaption data-zh="<b>固定選項</b>：50 個這類設定，挑就好" data-en="<b>Fixed choices</b>: 50 settings work like this, just pick"><b>固定選項</b>：50 個這類設定，挑就好</figcaption>
+    </figure>
+    <figure>
+      <img class="shot" src="img/editlist-zh.png" data-img="editlist" width="981" height="330"
+           alt="可編輯設定檔的清單，列出三個自訂設定檔與各自的設定項目數量。">
+      <figcaption data-zh="<b>自訂設定檔</b>：只列出你自己建立的" data-en="<b>Your configs</b>: only the ones you created are listed"><b>自訂設定檔</b>：只列出你自己建立的</figcaption>
+    </figure>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="bilingual" class="reveal">
+  <div class="wrap">
+    <h2 data-zh="按 L 就換一種語言" data-en="Press L, get the other language">按 L 就換一種語言</h2>
+    <p class="lede" style="margin-top:1.1rem"
+       data-zh="介面、分類頁籤，以及全部 200 個設定的說明與可填值，都跟著換。英文說明取自 Ghostty 官方文件。這個網站上方那顆按鈕也一樣。"
+       data-en="The interface, the category tabs, and all 200 setting descriptions and value ranges switch together. The English text comes from Ghostty's own documentation. The button at the top of this page does the same thing.">介面、分類頁籤，以及全部 200 個設定的說明與可填值，都跟著換。英文說明取自 Ghostty 官方文件。這個網站上方那顆按鈕也一樣。</p>
+    <div class="compare" style="margin-top: clamp(1.75rem, 3.5vw, 2.75rem)">
+      <figure>
+        <img class="shot block-shadow" src="img/browser-zh.png" width="1771" height="1056"
+             alt="主題瀏覽器的繁體中文介面。">
+        <figcaption><b>繁體中文</b></figcaption>
+      </figure>
+      <figure>
+        <img class="shot block-shadow" src="img/browser-en.png" width="1771" height="1056"
+             alt="The same theme browser screen in English.">
+        <figcaption><b>English</b></figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="safety" class="reveal">
+  <div class="wrap stack">
+    <div>
+      <h2 data-zh="它只碰自己那一段" data-en="It only touches its own block">它只碰自己那一段</h2>
+      <p class="lede"
+         data-zh="所有選擇都寫在註解標記包住的區塊裡，用的是 Ghostty 自己的 config-file 引用機制。區塊外你手寫的設定完全不動。"
+         data-en="Every selection is written inside a marker-delimited block, using Ghostty's own config-file include mechanism. Anything you hand-wrote outside that block is left alone.">所有選擇都寫在註解標記包住的區塊裡，用的是 Ghostty 自己的 config-file 引用機制。區塊外你手寫的設定完全不動。</p>
+    </div>
+    <pre class="code"><span class="c"># >>> ghostty-picker managed >>></span>
+<span class="c"># category:theme</span>
+<span class="k">config-file</span> = ~/.config/ghostty-config-studio/assets/shader-themes/config.campfire
+<span class="c"># category:font</span>
+<span class="k">config-file</span> = ~/.config/ghostty-config-studio/assets/fonts/iosevka.conf
+<span class="c"># <<< ghostty-picker managed <<<</span></pre>
+    <div class="split">
+      <ul class="facts" style="margin-top:0">
+        <li><span class="key">1</span><span data-zh="theme / font / cursor <b>各佔一行，可以獨立疊加</b>；preset 則是完整組合，選了會取代整段。" data-en="theme / font / cursor each take one line and <b>stack independently</b>. A preset is a complete set and replaces the whole block.">theme / font / cursor <b>各佔一行，可以獨立疊加</b>；preset 則是完整組合，選了會取代整段。</span></li>
+        <li><span class="key">2</span><span data-zh="刪掉正在套用中的設定檔時，<b>會一併把引用移除</b>。少了這步，Ghostty 開不了被引用的檔案，整份設定會失效。" data-en="Deleting a config that is currently applied <b>removes the reference too</b>. Without that step Ghostty cannot open the file it was pointed at, and the entire config falls back to defaults.">刪掉正在套用中的設定檔時，<b>會一併把引用移除</b>。少了這步，Ghostty 開不了被引用的檔案，整份設定會失效。</span></li>
+        <li><span class="key">3</span><span data-zh="匯入的素材與你建立的設定檔都放在 <b>~/.config/ghostty-config-studio/</b>，<b>brew upgrade</b> 與 <b>brew uninstall</b> 都帶不走。" data-en="Imported packs and your own configs live in <b>~/.config/ghostty-config-studio/</b>, so neither <b>brew upgrade</b> nor <b>brew uninstall</b> takes them with it.">匯入的素材與你建立的設定檔都放在 <b>~/.config/ghostty-config-studio/</b>，<b>brew upgrade</b> 與 <b>brew uninstall</b> 都帶不走。</span></li>
+      </ul>
+      <figure style="margin:0">
+        <img class="shot" src="img/restart-zh.png" data-img="restart" width="643" height="276"
+             alt="套用後跳出的提示視窗，說明有些設定需要完全關閉並重新開啟 Ghostty 才會生效，並詢問是否現在重啟。">
+        <figcaption style="margin-top:.7rem;color:var(--dim);font-size:.85rem"
+          data-zh="有些設定 reload 不一定生效，套用後它會直接問你要不要重啟"
+          data-en="Some settings do not reliably reload, so it offers to restart Ghostty for you">有些設定 reload 不一定生效，套用後它會直接問你要不要重啟</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="packs" class="reveal">
+  <div class="wrap duo">
+    <div>
+      <h2 data-zh="社群素材，你自己挑" data-en="Community packs, on your terms">社群素材，你自己挑</h2>
+      <p class="lede"
+         data-zh="本體不夾帶任何第三方設定檔。想要 GLSL shader 主題或游標動畫，執行 ghostty-setup 單獨挑要哪幾包，隨時可以移除。完全不匯入也能用。"
+         data-en="No third-party config files ship with it. Run ghostty-setup to pick individual packs of GLSL shader themes or cursor animations, and remove them whenever. Importing nothing at all is a supported setup.">本體不夾帶任何第三方設定檔。想要 GLSL shader 主題或游標動畫，執行 ghostty-setup 單獨挑要哪幾包，隨時可以移除。完全不匯入也能用。</p>
+      <img class="shot" style="margin-top:1.75rem" src="img/cli-setup-zh.png" data-img="cli-setup" width="1056" height="432"
+           alt="ghostty-setup 的素材匯入選單，列出 snedea、naydenoff、sahaj-b 三個設定檔集與各自的內容。">
+    </div>
+    <div>
+      <h3 data-zh="TUI 之外也有指令" data-en="Commands, not just the TUI">TUI 之外也有指令</h3>
+      <p style="margin-top:.9rem;color:var(--dim)"
+         data-zh="每個分類都有獨立的數字選單指令，適合寫進 script 或直接切換。語言跟 TUI 共用同一個開關。"
+         data-en="Each category has a standalone numbered-menu command, handy in scripts or for a direct switch. They share the TUI's language switch.">每個分類都有獨立的數字選單指令，適合寫進 script 或直接切換。語言跟 TUI 共用同一個開關。</p>
+      <ul class="cmdlist">
+        <li><code>ghostty-tui</code><span data-zh="完整工作台" data-en="the full workbench">完整工作台</span></li>
+        <li><code>ghostty-theme</code><span data-zh="主題，--search 可搜內建 460+ 個" data-en="themes, --search browses the built-in 460+">主題，--search 可搜內建 460+ 個</span></li>
+        <li><code>ghostty-font</code><span data-zh="字型" data-en="fonts">字型</span></li>
+        <li><code>ghostty-preset</code><span data-zh="完整 preset" data-en="full presets">完整 preset</span></li>
+        <li><code>ghostty-cursor</code><span data-zh="游標特效 shader" data-en="cursor-effect shaders">游標特效 shader</span></li>
+        <li><code>ghostty-window</code><span data-zh="視窗透明度與模糊" data-en="background opacity and blur">視窗透明度與模糊</span></li>
+        <li><code>ghostty-theme --current</code><span data-zh="列出每個分類目前的選擇" data-en="show the active selection per category">列出每個分類目前的選擇</span></li>
+      </ul>
+      <img class="shot" style="margin-top:1.75rem" src="img/cli-theme-zh.png" data-img="cli-theme" width="1563" height="640"
+           alt="ghostty-theme 的編號選單，逐項列出主題名稱、來源與一行描述。">
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="keys" class="reveal">
+  <div class="wrap keycols">
+    <div>
+      <h3 data-zh="瀏覽器" data-en="Browser">瀏覽器</h3>
+      <ul class="keys">
+        <li><kbd>↑ ↓</kbd><span data-zh="移動，右側即時預覽" data-en="Move, the right pane previews as you go">移動，右側即時預覽</span></li>
+        <li><kbd>/</kbd><span data-zh="模糊搜尋" data-en="Fuzzy search">模糊搜尋</span></li>
+        <li><kbd>enter</kbd><span data-zh="套用選中的項目" data-en="Apply the selected item">套用選中的項目</span></li>
+        <li><kbd>s</kbd><span data-zh="把目前組合存成自訂 preset" data-en="Save the current combination as a preset">把目前組合存成自訂 preset</span></li>
+        <li><kbd>n</kbd><span data-zh="新建設定檔並進入編輯器" data-en="New config, opens the editor">新建設定檔並進入編輯器</span></li>
+        <li><kbd>e</kbd><span data-zh="列出可編輯的設定檔" data-en="List your editable configs">列出可編輯的設定檔</span></li>
+        <li><kbd>L</kbd><span data-zh="切換中文 / English" data-en="Switch 中文 / English">切換中文 / English</span></li>
+      </ul>
+    </div>
+    <div>
+      <h3 data-zh="設定編輯器" data-en="Settings editor">設定編輯器</h3>
+      <ul class="keys">
+        <li><kbd>← →</kbd><span data-zh="切換分類頁" data-en="Switch category page">切換分類頁</span></li>
+        <li><kbd>↑ ↓</kbd><span data-zh="移動，右側顯示完整說明" data-en="Move, the right pane shows the full description">移動，右側顯示完整說明</span></li>
+        <li><kbd>space</kbd><span data-zh="勾選或取消，勾選時跳出數值輸入" data-en="Tick or untick, ticking opens the value input">勾選或取消，勾選時跳出數值輸入</span></li>
+        <li><kbd>enter</kbd><span data-zh="修改已勾選項目的值" data-en="Change a ticked setting's value">修改已勾選項目的值</span></li>
+        <li><kbd>d</kbd><span data-zh="在設定檔清單刪除一份設定檔" data-en="Delete a config from the list">在設定檔清單刪除一份設定檔</span></li>
+        <li><kbd>s</kbd><span data-zh="儲存" data-en="Save">儲存</span></li>
+        <li><kbd>esc</kbd><span data-zh="離開" data-en="Back">離開</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="install" style="padding-block: clamp(3rem, 6vw, 4.5rem)">
+  <div class="wrap install-inner">
+    <div>
+      <h2 data-zh="開始用" data-en="Get started">開始用</h2>
+      <p data-zh="裝完直接跑 ghostty-tui。不需要先下載任何素材。"
+         data-en="Run ghostty-tui once it is installed. Nothing to download first.">裝完直接跑 ghostty-tui。不需要先下載任何素材。</p>
+    </div>
+    <div class="cmd">
+      <code id="cmd2">brew install shigachentw/tap/ghostty-config-studio</code>
+      <button class="copy" id="copy2" type="button" data-zh="複製" data-en="Copy">複製</button>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <p data-zh="MIT 授權。選用的設定檔集屬於各自作者，皆為 MIT，未包含在本 repo 中，由 ghostty-setup 在你要求時才向上游取得。"
+         data-en="MIT licensed. The optional config packs belong to their respective authors, all MIT, and are not included in this repository. ghostty-setup fetches them from upstream only when you ask.">MIT 授權。選用的設定檔集屬於各自作者，皆為 MIT，未包含在本 repo 中，由 ghostty-setup 在你要求時才向上游取得。</p>
+      <p style="margin-top:1rem"
+         data-zh="目前只在 macOS 測試過。"
+         data-en="Tested on macOS only so far.">目前只在 macOS 測試過。</p>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/ShiGaChenTW/ghostty_config_studio">GitHub</a>
+      <a href="https://github.com/ShiGaChenTW/ghostty_config_studio/releases">Releases</a>
+      <a href="https://github.com/ShiGaChenTW/ghostty_config_studio/blob/main/NOTICE.md">Notice</a>
+      <a href="https://ghostty.org">Ghostty</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---- Language, mirroring the app's own L key ---- */
+  var nodes = document.querySelectorAll("[data-zh][data-en]");
+  var shots = document.querySelectorAll("[data-img]");
+  var btn = document.getElementById("lang");
+  var lang = "zh";
+
+  try { lang = localStorage.getItem("gcs-lang") || "zh"; } catch (e) {}
+
+  function apply(next) {
+    lang = next;
+    document.documentElement.setAttribute("data-lang", lang);
+    document.documentElement.lang = lang === "en" ? "en" : "zh-Hant";
+    for (var i = 0; i < nodes.length; i++) {
+      nodes[i].innerHTML = nodes[i].getAttribute(lang === "en" ? "data-en" : "data-zh");
+    }
+    for (var k = 0; k < shots.length; k++) {
+      shots[k].src = "img/" + shots[k].getAttribute("data-img") + "-" + lang + ".png";
+    }
+    btn.textContent = lang === "en" ? "[L] 中文" : "[L] English";
+    try { localStorage.setItem("gcs-lang", lang); } catch (e) {}
+  }
+
+  btn.addEventListener("click", function () { apply(lang === "en" ? "zh" : "en"); });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "L" && e.key !== "l") return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var t = e.target;
+    if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
+    apply(lang === "en" ? "zh" : "en");
+  });
+
+  apply(lang);
+
+  /* ---- Copy the install command ---- */
+  [["copy", "cmd"], ["copy2", "cmd2"]].forEach(function (pair) {
+    var b = document.getElementById(pair[0]);
+    var c = document.getElementById(pair[1]);
+    if (!b || !c) return;
+    b.addEventListener("click", function () {
+      var done = function () {
+        b.dataset.done = "1";
+        b.textContent = lang === "en" ? "Copied" : "已複製";
+        setTimeout(function () {
+          delete b.dataset.done;
+          b.textContent = b.getAttribute(lang === "en" ? "data-en" : "data-zh");
+        }, 1800);
+      };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(c.textContent).then(done, function () {});
+      }
+    });
+  });
+
+  /* ---- Reveal sections in the order they are read ---- */
+  if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    var targets = document.querySelectorAll(".reveal");
+    if ("IntersectionObserver" in window) {
+      document.documentElement.className += " js";
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) { en.target.classList.add("in"); io.unobserve(en.target); }
+        });
+      }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
+      for (var j = 0; j < targets.length; j++) io.observe(targets[j]);
+    } else {
+      for (var k = 0; k < targets.length; k++) targets[k].classList.add("in");
+    }
+  }
+})();
+</script>
+</body>
+</html>

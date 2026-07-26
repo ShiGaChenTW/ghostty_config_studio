@@ -14,12 +14,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/menu.sh"
 ASSETS="$STUDIO_ASSETS"
 
-# name|repo|description|target subdir
+# name|repo|target subdir
 PACKS=(
-  "snedea|https://github.com/snedea/ghostty-themes|12 個帶 GLSL shader 的視覺主題|shader-themes"
-  "naydenoff|https://github.com/naydenoff/ghostty-config|6 個色彩主題 + 4 個字型 + 5 個完整 preset|naydenoff"
-  "sahaj-b|https://github.com/sahaj-b/ghostty-cursor-shaders|7 個游標特效 shader|cursor-shaders"
+  "snedea|https://github.com/snedea/ghostty-themes|shader-themes"
+  "naydenoff|https://github.com/naydenoff/ghostty-config|naydenoff"
+  "sahaj-b|https://github.com/sahaj-b/ghostty-cursor-shaders|cursor-shaders"
 )
+
+pack_desc() {
+  case "$1" in
+    snedea)    t "12 個帶 GLSL shader 的視覺主題" "12 visual themes with GLSL shaders" ;;
+    naydenoff) t "6 個色彩主題 + 4 個字型 + 5 個完整 preset" "6 color themes, 4 fonts, 5 full presets" ;;
+    sahaj-b)   t "7 個游標特效 shader" "7 cursor-effect shaders" ;;
+  esac
+}
 
 pack_field() { echo "$1" | cut -d'|' -f"$2"; }
 
@@ -36,9 +44,10 @@ import_pack() {
   local name="$1" repo="$2"
   local tmp
   tmp="$(mktemp -d)"
-  echo "→ 下載 $repo ..."
+  t "→ 下載 $repo ..." "-> fetching $repo ..."
   if ! git clone --depth 1 --quiet "$repo" "$tmp/src" 2>/dev/null; then
-    echo "  下載失敗，請確認網路連線或該 repo 是否仍存在。" >&2
+    t "  下載失敗，請確認網路連線或該 repo 是否仍存在。" \
+      "  Download failed. Check your connection, or whether that repo still exists." >&2
     rm -rf "$tmp"
     return 1
   fi
@@ -63,7 +72,7 @@ import_pack() {
       ;;
   esac
   rm -rf "$tmp"
-  echo "  完成。"
+  t "  完成。" "  Done."
 }
 
 remove_pack() {
@@ -79,38 +88,44 @@ remove_pack() {
   local d
   for d in "${dirs[@]}"; do clear_categories_under "$d"; done
   rm -rf "${dirs[@]}"
-  echo "已移除 $1 的素材。"
+  t "已移除 $1 的素材。" "Removed the $1 pack."
 }
 
 show_menu() {
   echo
-  echo "Ghostty Config Studio — 素材匯入"
-  echo "════════════════════════════════"
-  echo "這些設定檔集都是選用的。完全不匯入也能用——工作台會只顯示你自己建立的設定檔。"
+  t "Ghostty Config Studio — 素材匯入" "Ghostty Config Studio - import packs"
+  echo "════════════════════════════════════"
+  t "這些設定檔集都是選用的。完全不匯入也能用——工作台會只顯示你自己建立的設定檔。" \
+    "Every pack is optional. Importing none is fine; the workbench then shows only the configs you create."
   echo
-  local i=1 p name desc
+  local i=1 p name mark
   for p in "${PACKS[@]}"; do
-    name="$(pack_field "$p" 1)"; desc="$(pack_field "$p" 3)"
+    name="$(pack_field "$p" 1)"
     if is_installed "$name"; then
-      printf "  %d) [已匯入] %-11s %s\n" "$i" "$name" "$desc"
+      mark="$(t "[已匯入]" "[ done ]")"
     else
-      printf "  %d) [  --  ] %-11s %s\n" "$i" "$name" "$desc"
+      mark="[  --  ]"
     fi
+    printf "  %d) %s %-11s %s\n" "$i" "$mark" "$name" "$(pack_desc "$name")"
     i=$((i + 1))
   done
   echo
-  echo "  a) 全部匯入"
-  echo "  r) 移除全部素材（回到空白工作台）"
-  echo "  q) 離開"
+  t "  a) 全部匯入" "  a) import all"
+  t "  r) 移除全部素材（回到空白工作台）" "  r) remove everything (back to a blank workbench)"
+  t "  q) 離開" "  q) quit"
   echo
 }
 
 while true; do
   show_menu
-  printf "選擇 [1-%d/a/r/q]: " "${#PACKS[@]}"
+  if [ "$(studio_lang)" = "en" ]; then
+    printf "Choose [1-%d/a/r/q]: " "${#PACKS[@]}"
+  else
+    printf "選擇 [1-%d/a/r/q]： " "${#PACKS[@]}"
+  fi
   read -r choice || exit 0
   case "$choice" in
-    q|Q|"") echo "離開。"; exit 0 ;;
+    q|Q|"") t "離開。" "Bye."; exit 0 ;;
     a|A)
       for p in "${PACKS[@]}"; do
         import_pack "$(pack_field "$p" 1)" "$(pack_field "$p" 2)" || true
@@ -124,16 +139,23 @@ while true; do
         p="${PACKS[$((choice - 1))]}"
         name="$(pack_field "$p" 1)"
         if is_installed "$name"; then
-          printf "%s 已匯入。要移除嗎？[y/N]: " "$name"
+          if [ "$(studio_lang)" = "en" ]; then
+            printf "%s is already imported. Remove it? [y/N]: " "$name"
+          else
+            printf "%s 已匯入。要移除嗎？[y/N]： " "$name"
+          fi
           read -r yn
-          case "$yn" in y|Y) remove_pack "$name" ;; *) echo "維持不變。" ;; esac
+          case "$yn" in
+            y|Y) remove_pack "$name" ;;
+            *)   t "維持不變。" "Left as is." ;;
+          esac
         else
           import_pack "$name" "$(pack_field "$p" 2)" || true
         fi
       else
-        echo "無效的選擇。"
+        t "無效的選擇。" "Not a valid choice."
       fi
       ;;
-    *) echo "無效的選擇。" ;;
+    *) t "無效的選擇。" "Not a valid choice." ;;
   esac
 done

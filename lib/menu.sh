@@ -15,6 +15,20 @@ GHOSTTY_SHADERS="$GHOSTTY_DIR/shaders"
 # clone entirely.
 STUDIO_DIR="${GHOSTTY_STUDIO_DIR:-$HOME/.config/ghostty-config-studio}"
 STUDIO_ASSETS="$STUDIO_DIR/assets"
+
+# Language is shared with the TUI: both read the same file, so toggling with
+# [L] inside ghostty-tui also switches what these commands print. One switch
+# for the whole tool rather than two that can disagree.
+LANG_FILE="$GHOSTTY_DIR/.ghostty-tui-lang"
+studio_lang() {
+  if [ -r "$LANG_FILE" ] && [ "$(tr -d '[:space:]' < "$LANG_FILE")" = "en" ]; then
+    echo en
+  else
+    echo zh
+  fi
+}
+# t ZH EN — prints whichever the current language calls for.
+t() { if [ "$(studio_lang)" = "en" ]; then echo "$2"; else echo "$1"; fi; }
 BEGIN_MARK="# >>> ghostty-picker managed >>>"
 END_MARK="# <<< ghostty-picker managed <<<"
 
@@ -99,7 +113,8 @@ clear_categories_under() {
       inb && c != "" && index($0, p) { print c; c="" }
     ' "$GHOSTTY_CONFIG"); do
     clear_category "$cat"
-    echo "  （已從 Ghostty 設定移除仍在套用的 $cat）"
+    t "  （已從 Ghostty 設定移除仍在套用的 $cat）" \
+      "  (removed the still-applied $cat from your Ghostty config)"
   done
 }
 
@@ -198,10 +213,10 @@ save_current_as() {
 
 show_current() {
   if [ -f "$GHOSTTY_CONFIG" ] && grep -qF "$BEGIN_MARK" "$GHOSTTY_CONFIG"; then
-    echo "Current ghostty-picker selections:"
+    t "目前的 ghostty-picker 選擇：" "Current ghostty-picker selections:"
     awk -v b="$BEGIN_MARK" -v e="$END_MARK" '$0==b{inb=1;next} $0==e{inb=0;next} inb' "$GHOSTTY_CONFIG"
   else
-    echo "No ghostty-picker selections set yet."
+    t "還沒有任何 ghostty-picker 選擇。" "No ghostty-picker selections set yet."
   fi
 }
 
@@ -228,8 +243,9 @@ run_picker() {
   # A blank workbench is a supported state: the asset packs are optional and
   # imported on demand. Say so rather than presenting an empty "[1-0]" menu.
   if [ "$n" -eq 0 ]; then
-    echo "沒有可用的${label}項目。" >&2
-    echo "這些素材是選用的，執行 ghostty-setup 可以挑要匯入哪些設定檔集。" >&2
+    t "沒有可用的${label}項目。" "No ${label} entries available." >&2
+    t "這些素材是選用的，執行 ghostty-setup 可以挑要匯入哪些設定檔集。" \
+      "These packs are optional. Run ghostty-setup to pick which ones to import." >&2
     return 1
   fi
 
@@ -240,7 +256,8 @@ run_picker() {
     local kind="${kinds[$idx]:-file}"
     local cat; cat="$(_cat_for "$idx")"
     apply_selection "$cat" "${paths[$idx]}" "$kind" "${shader_srcs[$idx]:-}" "${keys[$idx]:-}"
-    echo "Switched $cat to: ${names[$idx]} -- ${descs[$idx]}"
+    t "已切換 $cat：${names[$idx]} -- ${descs[$idx]}" \
+      "Switched $cat to: ${names[$idx]} -- ${descs[$idx]}"
   }
 
   if [ -n "$direct" ]; then
@@ -248,12 +265,12 @@ run_picker() {
     for i in "${!names[@]}"; do
       if [ "${names[$i]}" = "$direct" ]; then _apply_choice "$i"; return 0; fi
     done
-    echo "Unknown $category: $direct" >&2
-    echo "Available: ${names[*]}" >&2
+    t "找不到 $category：$direct" "Unknown $category: $direct" >&2
+    t "可用的有：${names[*]}" "Available: ${names[*]}" >&2
     return 1
   fi
 
-  echo "Ghostty ${label}s"
+  t "Ghostty ${label}" "Ghostty ${label}s"
   echo "──────────────"
   local i marker display cat cur
   for i in "${!names[@]}"; do
@@ -269,11 +286,15 @@ run_picker() {
     printf "  %s%d) %-32s %s\n" "$marker" "$((i + 1))" "$display" "${descs[$i]}"
   done
   echo ""
-  printf "Pick a %s [1-%d]: " "$category" "$n"
+  if [ "$(studio_lang)" = "en" ]; then
+    printf "Pick a %s [1-%d]: " "$category" "$n"
+  else
+    printf "選一個 %s [1-%d]： " "$category" "$n"
+  fi
   read -r choice
 
   if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "$n" ]; then
-    echo "Cancelled."
+    t "已取消。" "Cancelled."
     return 1
   fi
   _apply_choice $((choice - 1))
