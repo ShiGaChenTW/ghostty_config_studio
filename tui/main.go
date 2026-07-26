@@ -286,12 +286,19 @@ func ghosttyConfigDir() string {
 // studioAssetsDir mirrors lib/menu.sh's STUDIO_ASSETS: imported packs live in
 // a user-owned directory, not beside the binary, so a `brew upgrade` replacing
 // the install prefix doesn't take them with it.
-func studioAssetsDir() string {
+// studioDir is the user-owned root: imported packs live in assets/ under it,
+// and anything the user adds themselves lives beside that, out of reach of
+// ghostty-setup's pack removal.
+func studioDir() string {
 	if d := os.Getenv("GHOSTTY_STUDIO_DIR"); d != "" {
-		return filepath.Join(d, "assets")
+		return d
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "ghostty-config-studio", "assets")
+	return filepath.Join(home, ".config", "ghostty-config-studio")
+}
+
+func studioAssetsDir() string {
+	return filepath.Join(studioDir(), "assets")
 }
 
 func recentFilePath() string {
@@ -577,6 +584,21 @@ func buildEntries(dir string) []entry {
 		items = append(items, entry{
 			source: "naydenoff", name: name, desc: desc, category: "font",
 			kind: "file", value: f, previewPath: f, tags: curatedTags[name],
+		})
+	}
+
+	// Your own font configs, from a directory the packs never touch.
+	// See ghostty-font for why they do not live under assets/.
+	ownFonts, _ := filepath.Glob(filepath.Join(studioDir(), "fonts/*.conf"))
+	for _, f := range ownFonts {
+		name := strings.TrimSuffix(filepath.Base(f), ".conf")
+		desc := firstCommentLine(f)
+		if desc == "" {
+			desc = tr("你自己的字型設定", "your own font config")
+		}
+		items = append(items, entry{
+			source: "you", name: name, desc: desc, category: "font",
+			kind: "file", value: f, previewPath: f,
 		})
 	}
 
@@ -1629,7 +1651,7 @@ func (m model) View() string {
 // version is stamped by hand at release time and must match the tag the
 // Homebrew formula points at. Reported by `ghostty-tui --version` so a bug
 // report can say which build it came from.
-const version = "0.1.5"
+const version = "0.1.6"
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {

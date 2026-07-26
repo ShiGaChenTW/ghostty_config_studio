@@ -89,6 +89,19 @@ ghostty-setup
 ```
 
 
+Your own font configs go in `~/.config/ghostty-config-studio/fonts/*.conf` and
+show up in the picker as `you/<name>`. That directory sits outside `assets/` on
+purpose: `assets/` belongs to the imported packs, and removing a pack takes the
+whole thing with it.
+
+```
+# 0xProto Nerd Font - wide spacing, unmistakable zero
+font-family = 0xProto Nerd Font
+font-size = 13
+```
+
+The first `#` comment line becomes the description in the menu.
+
 Pick packs **individually**, remove them any time, or import nothing at all.
 Everything imported — and every config you create — lives in
 `~/.config/ghostty-config-studio/`, so it survives `brew upgrade` and even
@@ -263,6 +276,18 @@ Ghostty Config Studio — 素材匯入
   r) 移除全部素材（回到空白工作台）
   q) 離開
 ```
+
+自己的字型設定放在 `~/.config/ghostty-config-studio/fonts/*.conf`，會以
+`you/<名稱>` 出現在選單裡。刻意放在 `assets/` 外面：`assets/` 是匯入素材的地盤，
+移除素材包會把整個目錄帶走。
+
+```
+# 0xProto Nerd Font -- 寬鬆字距、清楚的 0
+font-family = 0xProto Nerd Font
+font-size = 13
+```
+
+檔案第一行的 `#` 註解會變成選單裡的說明。
 
 可以**單獨挑**要哪幾包、隨時移除、也可以完全不匯入。匯入的素材與你自己建立的
 設定檔都放在 `~/.config/ghostty-config-studio/`，不會被 `brew upgrade` 或

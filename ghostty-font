@@ -29,4 +29,15 @@ for f in "$STUDIO_ASSETS"/fonts/*.conf; do
   names+=("$name"); descs+=("$(font_desc "$name")"); paths+=("$f"); shader_srcs+=(""); sources+=("naydenoff")
 done
 
+# Your own font configs. Kept outside assets/ on purpose: that directory
+# belongs to the imported packs, and removing a pack takes the whole thing
+# with it. Anything here survives that, and survives never importing at all.
+for f in "$STUDIO_DIR"/fonts/*.conf; do
+  [ -f "$f" ] || continue
+  name="$(basename "$f" .conf)"
+  desc="$(grep -m1 '^# ' "$f" | sed 's/^# //')"
+  [ -n "$desc" ] || desc="$(t "你自己的字型設定" "your own font config")"
+  names+=("$name"); descs+=("$desc"); paths+=("$f"); shader_srcs+=(""); sources+=("you")
+done
+
 run_picker font Font "${1:-}"
