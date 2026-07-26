@@ -722,6 +722,18 @@ func currentSelections(dir string) map[string]string {
 	return result
 }
 
+// firstWarningLine picks the ⚠ line out of apply_selection's output. Only the
+// first line: the rest is the explanation, which is too long for a status bar
+// and is printed in full by the command-line tools.
+func firstWarningLine(out string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if t := strings.TrimSpace(l); strings.HasPrefix(t, "⚠") {
+			return t
+		}
+	}
+	return ""
+}
+
 func applyEntry(dir string, e entry) (string, error) {
 	cmd := exec.Command("bash", "-c",
 		fmt.Sprintf(`source %q; apply_selection "$1" "$2" "$3" "$4" "$5"`, filepath.Join(dir, "lib/menu.sh")),
@@ -1423,8 +1435,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.status = txtSwitched(item.category, item.source+"/"+item.name, item.desc)
 						m.statusOK = true
+						// apply_selection warns on stderr when another config
+						// that Ghostty loads later sets the same keys. That is
+						// the difference between "nothing happened" and
+						// "nothing happened, and here is why", so it replaces
+						// the success line rather than scrolling past behind it.
+						warning := firstWarningLine(out)
+						if warning != "" {
+							m.status = warning
+							m.statusOK = false
+						}
 						m.current = currentSelections(m.dir)
-						m.showRestartPrompt = true
+						// Offering a restart is only honest when restarting
+						// would change something. If another config is
+						// overriding these keys, it will override them again
+						// on the next launch, so leave the warning on screen
+						// rather than covering it with a prompt that cannot help.
+						m.showRestartPrompt = warning == ""
 						recordRecent(item.recentKey())
 					}
 				}
@@ -1602,7 +1629,7 @@ func (m model) View() string {
 // version is stamped by hand at release time and must match the tag the
 // Homebrew formula points at. Reported by `ghostty-tui --version` so a bug
 // report can say which build it came from.
-const version = "0.1.2"
+const version = "0.1.3"
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {

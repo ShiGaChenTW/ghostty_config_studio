@@ -181,6 +181,11 @@ Ghostty for you.
   with an independent choice for the same key gives unintuitive precedence, and
   your explicit pick may lose. They behave predictably on their own, and
   alongside color themes, built-in themes and presets.
+- macOS reads a second config,
+  `~/Library/Application Support/com.mitchellh.ghostty/config`, **after**
+  `~/.config/ghostty/config`, so any key set there overrides your selection.
+  The tools name the file and the keys when this happens; remove or comment
+  those lines to let the selection through.
 - Only tested on macOS.
 
 ### License
@@ -342,6 +347,10 @@ config-file = /Users/you/.config/ghostty-config-studio/assets/fonts/iosevka.conf
   `cursor-style` 等「氛圍」設定。同時使用 shader 主題與 `ghostty-window` 這類
   獨立設定時，同名鍵的優先權判定不直覺，你獨立選的值可能被主題內建值蓋掉。
   單獨使用、或搭配色彩主題 / 內建主題 / preset 時正常。
+- macOS 上 Ghostty 還會讀第二份設定
+  `~/Library/Application Support/com.mitchellh.ghostty/config`，而且是在
+  `~/.config/ghostty/config` **之後**讀，所以那裡設過的項目會蓋掉你的選擇。
+  遇到時工具會直接指出是哪個檔案、哪幾個 key，把那幾行移除或註解掉就會生效。
 - 只在 macOS 測試過。
 
 ### 授權

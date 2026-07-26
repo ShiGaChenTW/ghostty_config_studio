@@ -47,15 +47,59 @@ END_MARK="# <<< ghostty-picker managed <<<"
 # raw scalar Ghostty setting (background-opacity, cursor-style, etc — KEY is
 # the actual Ghostty config key name, required only for kind=raw). Kind
 # defaults to "file".
+# Ghostty treats font-family (and its bold/italic variants) as a LIST: a
+# second `font-family = X` appends a fallback rather than replacing, and the
+# FIRST entry stays the primary face. Two consequences, both learned the hard
+# way with `+show-config`:
+#
+#   1. A config that sets a font does nothing for anyone who already set their
+#      own font earlier in the file. Assigning an empty value clears the list,
+#      so a reset goes in first.
+#   2. `config-file` includes are applied AFTER every direct assignment in the
+#      parent file, wherever the directive itself sits. So a font that arrives
+#      through an include can never outrank one assigned directly, and a reset
+#      cannot clear anything an include brought in.
+#
+# Hence: the font is restated directly, above the include that also carries it.
+# The include still supplies everything else in the file (size, thickening,
+# ligatures); this only settles which face wins. Emitted solely for the
+# variants the target file actually sets, so picking a theme never wipes a
+# font the theme had no opinion about.
+_font_preamble() {
+  local file="$1" k v
+  [ -f "$file" ] || return 0
+  for k in font-family font-family-bold font-family-italic font-family-bold-italic; do
+    grep -qE "^[[:space:]]*$k[[:space:]]*=" "$file" || continue
+    echo "$k = "
+    sed -n "s/^[[:space:]]*$k[[:space:]]*=[[:space:]]*//p" "$file" | while IFS= read -r v; do
+      [ -n "$v" ] && echo "$k = $v"
+    done
+  done
+  return 0
+}
+
 _directive_line() {
   local value="$1" kind="${2:-file}" key="${3:-}"
   case "$kind" in
     name)   echo "theme = $value" ;;
     shader) echo "custom-shader = $value" ;;
     raw)    echo "$key = $value" ;;
-    *)      echo "config-file = $value" ;;
+    *)      _font_preamble "$value"; echo "config-file = $value" ;;
   esac
 }
+
+# awk -v cannot carry a newline on BSD awk, and a directive is now more than
+# one line whenever a font list has to be cleared first. Write it to a file
+# and let awk read it back where it is needed.
+_write_directive() {
+  local out="$1" value="$2" kind="$3" key="$4"
+  _directive_line "$value" "$kind" "$key" > "$out"
+}
+
+# A directive pair may be preceded by font-family preamble lines. The reader
+# and the eraser below both have to step over them to reach the directive they
+# belong to; the directive is always the last line of the pair.
+_PREAMBLE_RE="^font-family[a-z-]* ="
 
 # Prints the value currently recorded for a category (empty if none set).
 # Strips generically ("<anything> = ") rather than a fixed list of known
@@ -63,10 +107,11 @@ _directive_line() {
 current_path_for() {
   local category="$1"
   [ -f "$GHOSTTY_CONFIG" ] || return 0
-  awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" '
+  awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" -v pre="$_PREAMBLE_RE" '
     $0==b {inb=1; next} $0==e {inb=0; next}
     inb && $0==tag {want=1; next}
     inb && want {
+      if ($0 ~ pre) next
       line=$0; sub(/^[a-zA-Z0-9_-]+ = /,"",line); print line; want=0
     }' "$GHOSTTY_CONFIG"
 }
@@ -86,12 +131,12 @@ clear_category() {
   grep -qF "$BEGIN_MARK" "$GHOSTTY_CONFIG" || return 0
   local tmp
   tmp="$(mktemp)"
-  awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" '
+  awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" -v pre="$_PREAMBLE_RE" '
     $0==b {print; inb=1; next}
     $0==e {print; inb=0; next}
     inb {
       if ($0==tag) { skip=1; next }
-      if (skip) { skip=0; next }
+      if (skip) { if ($0 ~ pre) next; skip=0; next }
       print; next
     }
     { print }
@@ -121,28 +166,30 @@ clear_categories_under() {
 set_path_for() {
   local category="$1" value="$2" kind="${3:-file}" key="${4:-}"
   mkdir -p "$GHOSTTY_DIR"
-  local tmp directive
-  tmp="$(mktemp)"
-  directive="$(_directive_line "$value" "$kind" "$key")"
+  local tmp dir_f
+  tmp="$(mktemp)"; dir_f="$(mktemp)"
+  _write_directive "$dir_f" "$value" "$kind" "$key"
 
   if [ -f "$GHOSTTY_CONFIG" ] && grep -qF "$BEGIN_MARK" "$GHOSTTY_CONFIG"; then
-    awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" -v cfgline="$directive" '
+    awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" -v cfgfile="$dir_f" -v pre="$_PREAMBLE_RE" '
+      function emit(   l) { while ((getline l < cfgfile) > 0) print l; close(cfgfile) }
       $0==b {print; inb=1; next}
       $0==e {
-        if (!wrote) { print tag; print cfgline }
+        if (!wrote) { print tag; emit() }
         print; inb=0; next
       }
       inb {
-        if ($0==tag) { print tag; print cfgline; wrote=1; skip=1; next }
-        if (skip) { skip=0; next }
+        if ($0==tag) { print tag; emit(); wrote=1; skip=1; next }
+        if (skip) { if ($0 ~ pre) next; skip=0; next }
         print; next
       }
       { print }
     ' "$GHOSTTY_CONFIG" > "$tmp"
   else
     [ -f "$GHOSTTY_CONFIG" ] && cat "$GHOSTTY_CONFIG" > "$tmp"
-    { [ -s "$tmp" ] && echo; echo "$BEGIN_MARK"; echo "# category:$category"; echo "$directive"; echo "$END_MARK"; } >> "$tmp"
+    { [ -s "$tmp" ] && echo; echo "$BEGIN_MARK"; echo "# category:$category"; cat "$dir_f"; echo "$END_MARK"; } >> "$tmp"
   fi
+  rm -f "$dir_f"
   mv "$tmp" "$GHOSTTY_CONFIG"
 }
 
@@ -152,21 +199,23 @@ set_path_for() {
 set_solo_path_for() {
   local category="$1" value="$2" kind="${3:-file}" key="${4:-}"
   mkdir -p "$GHOSTTY_DIR"
-  local tmp directive
-  tmp="$(mktemp)"
-  directive="$(_directive_line "$value" "$kind" "$key")"
+  local tmp dir_f
+  tmp="$(mktemp)"; dir_f="$(mktemp)"
+  _write_directive "$dir_f" "$value" "$kind" "$key"
 
   if [ -f "$GHOSTTY_CONFIG" ] && grep -qF "$BEGIN_MARK" "$GHOSTTY_CONFIG"; then
-    awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" -v cfgline="$directive" '
-      $0==b {print; print tag; print cfgline; inb=1; next}
+    awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" -v cfgfile="$dir_f" '
+      function emit(   l) { while ((getline l < cfgfile) > 0) print l; close(cfgfile) }
+      $0==b {print; print tag; emit(); inb=1; next}
       $0==e {print; inb=0; next}
       inb {next}
       {print}
     ' "$GHOSTTY_CONFIG" > "$tmp"
   else
     [ -f "$GHOSTTY_CONFIG" ] && cat "$GHOSTTY_CONFIG" > "$tmp"
-    { [ -s "$tmp" ] && echo; echo "$BEGIN_MARK"; echo "# category:$category"; echo "$directive"; echo "$END_MARK"; } >> "$tmp"
+    { [ -s "$tmp" ] && echo; echo "$BEGIN_MARK"; echo "# category:$category"; cat "$dir_f"; echo "$END_MARK"; } >> "$tmp"
   fi
+  rm -f "$dir_f"
   mv "$tmp" "$GHOSTTY_CONFIG"
 }
 
@@ -175,6 +224,64 @@ set_solo_path_for() {
 # so the Bubble Tea TUI can apply a selection by shelling out to
 # `bash -c 'source lib/menu.sh; apply_selection ...'` instead of duplicating
 # the managed-block logic in Go. KEY is only needed for kind=raw.
+# Ghostty reads more than one config on macOS. Besides ~/.config/ghostty/config
+# it also loads ~/Library/Application Support/com.mitchellh.ghostty/config*,
+# and that one is applied AFTER, so every key it sets beats whatever we just
+# wrote. A selection then appears to do nothing at all, with no error anywhere
+# to explain it. Rather than succeed silently, say which file is winning and
+# over which keys.
+_shadow_configs() {
+  local d="$HOME/Library/Application Support/com.mitchellh.ghostty"
+  local f
+  for f in "$d"/config "$d"/config.ghostty; do
+    [ -f "$f" ] && echo "$f"
+  done
+}
+
+# The keys a selection actually decides. `theme = X` is expanded, because the
+# name alone never appears in the other file while the colors it stands for do.
+_keys_decided_by() {
+  local value="$1" kind="$2" key="$3"
+  case "$kind" in
+    raw)    echo "$key" ;;
+    name)   echo "theme background foreground palette" ;;
+    shader) echo "custom-shader" ;;
+    *)
+      [ -f "$value" ] || return 0
+      sed -e 's/#.*//' "$value" | grep -oE '^[[:space:]]*[a-z0-9-]+[[:space:]]*=' \
+        | tr -d ' =' | sort -u
+      if grep -qE '^[[:space:]]*theme[[:space:]]*=' "$value"; then
+        printf 'background\nforeground\npalette\n'
+      fi
+      ;;
+  esac
+  return 0
+}
+
+warn_if_shadowed() {
+  local value="$1" kind="$2" key="$3"
+  local other keys hits k
+  keys="$(_keys_decided_by "$value" "$kind" "$key" | sort -u)"
+  [ -n "$keys" ] || return 0
+  # Read the paths line by line: "Application Support" has a space in it, and
+  # word-splitting a command substitution would tear it in half.
+  while IFS= read -r other; do
+    [ -n "$other" ] || continue
+    hits=""
+    for k in $keys; do
+      grep -qE "^[[:space:]]*$k[[:space:]]*=" "$other" && hits="$hits $k"
+    done
+    [ -n "$hits" ] || continue
+    echo >&2
+    t "⚠  這些設定不會生效：$hits" "⚠  These settings will not take effect:$hits" >&2
+    t "   Ghostty 也會讀 $other，而且是在 ~/.config/ghostty/config 之後讀，" \
+      "   Ghostty also reads $other, and reads it AFTER ~/.config/ghostty/config," >&2
+    t "   所以那裡設的同名項目會蓋過這裡的選擇。把那幾行從該檔案移除或註解掉就會生效。" \
+      "   so the keys it sets win. Remove or comment those lines there to let this selection through." >&2
+  done < <(_shadow_configs)
+  return 0
+}
+
 apply_selection() {
   local category="$1" value="$2" kind="${3:-file}" shader_src="${4:-}" key="${5:-}"
   if [ -n "$shader_src" ]; then
@@ -192,6 +299,7 @@ apply_selection() {
   else
     set_path_for "$category" "$value" "$kind" "$key"
   fi
+  warn_if_shadowed "$value" "$kind" "$key"
 }
 
 # save_current_as DEST — snapshot whatever's currently active (across every

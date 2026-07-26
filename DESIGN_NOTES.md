@@ -35,6 +35,32 @@ prints the resolved config and exits clean even when an include is missing —
 it will not tell you the config is broken. `ghostty +validate-config` reports
 `error opening config-file …: error.FileNotFound`. Use the latter.
 
+**`config-file` includes are applied after every direct assignment in the
+parent file**, wherever the directive itself sits. Verified with
+`+show-config`: `font-family = BBB` written before, after, or with a reset
+between makes no difference; the include's value always lands last. So a
+setting that arrives through an include can never outrank one assigned
+directly, and a reset in the parent cannot clear what an include brought in.
+
+**`font-family` is a list, and the first entry wins.** A second
+`font-family = X` appends a fallback rather than replacing. Combined with the
+rule above, a font pack applied through an include was invisible to anyone who
+had already set their own font: theirs was assigned directly, so it stayed the
+primary face. The managed block now restates the font directly, above the
+include that also carries it, after an empty-value line that clears the list.
+The include still supplies size, thickening and ligatures; the direct lines
+only settle which face wins.
+
+**Ghostty reads more than one config on macOS.** Besides
+`~/.config/ghostty/config` it loads
+`~/Library/Application Support/com.mitchellh.ghostty/config*`, and that one is
+applied afterwards, so every key it sets beats the managed block. A selection
+then appears to do nothing at all with no error anywhere to explain it, which
+is why `apply_selection` names the file and the shadowed keys instead of
+reporting a silent success. The TUI also suppresses its restart prompt in that
+case: restarting re-reads the same overriding file, so offering it would be a
+lie.
+
 **An empty value is worse than an error.** Writing `key = ` parses fine and is
 then silently ignored by Ghostty, so the UI would show a setting as active
 while it does nothing. The editor treats an empty input as "not set".
