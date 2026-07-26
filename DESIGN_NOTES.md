@@ -106,6 +106,31 @@ On macOS the emulator cannot be launched through the `ghostty` binary at all
 app wherever LaunchServices has it registered rather than only under
 `/Applications`.
 
+**A split pane cannot be the preview surface, however much it should be.**
+The obvious design is `new_split:right` inside the window you are already in.
+Ghostty 1.3.1 rules it out three times over: `new_split` is a keybind action
+taking only a direction, there is no CLI action that creates one (`+new-window`
+answers "not supported on this platform"), and — the one that actually settles
+it — config is loaded per app instance at launch, with no per-surface config
+file. A split inherits the config of the instance that owns it, so it would
+render in the theme you are trying to replace. A second instance is the only
+surface that can carry its own config, so the preview window is placed where
+the split would have been: the right half of the screen.
+
+**Only the preview window's position is set, never its size.**
+`window-width`/`window-height` are counted in grid cells, and cell size depends
+on the font the previewed config selects — so a cell count computed by the
+workbench would be wrong for exactly the font entries most worth previewing.
+
+**Pressing `p` again replaces the preview rather than adding one.** The previous
+instance is found by the marker in its argv (`ghostty-studio-preview-`, from the
+temp config's own name) and signalled, which cannot reach a Ghostty the user
+started themselves — their command line has no reason to contain that string.
+Signalled rather than closed through the UI because the preview has a shell
+running in it, which is precisely when Ghostty asks for confirmation; the
+preview config also turns `confirm-close-surface` off, since a throwaway window
+arguing about being closed is the wrong behaviour.
+
 **The temp config is deleted on a delay, not on the way out.** `open -na`
 returns as soon as the launch has been *requested*, so deleting immediately
 races Ghostty's one read of the file at startup.

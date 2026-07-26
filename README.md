@@ -114,7 +114,7 @@ Everything imported — and every config you create — lives in
 | `↑`/`↓` | Move; the right pane previews as you go |
 | `/` | Fuzzy search over name, source, tag and description, indexed in both languages |
 | `t` | Filter by tag: pick several to intersect them, stacks with `/` |
-| `p` | Preview for real: opens a throwaway Ghostty window showing the highlighted entry, shaders included. Your config is not touched and not even read |
+| `p` | Preview for real: opens a throwaway Ghostty window on the right half of the screen showing the highlighted entry, shaders included. Pressing `p` again replaces it, so previews never stack. Your config is not touched and not even read |
 | `enter` | Apply the selected item |
 | `u` | Undo the last apply — steps back through the last 20 writes |
 | `s` | Save the current combination as a custom preset |
@@ -303,7 +303,7 @@ font-size = 13
 | `↑`/`↓` | 移動，右側即時預覽 |
 | `/` | 模糊搜尋，比對名稱、來源、分類標籤與描述，中英文都可以（例如 `/游標`、`/cursor`） |
 | `t` | 依標籤篩選：可複選取交集，也能和 `/` 疊加 |
-| `p` | 真的預覽：開一個用完即丟的 Ghostty 視窗顯示目前這個項目，shader 也看得到。你的設定檔完全不會被動到，連讀都不會讀 |
+| `p` | 真的預覽：在螢幕右半邊開一個用完即丟的 Ghostty 視窗顯示目前這個項目，shader 也看得到。再按一次 `p` 會換掉同一個視窗，不會愈開愈多。你的設定檔完全不會被動到，連讀都不會讀 |
 | `enter` | 套用選中的項目 |
 | `u` | 復原上一次套用，最多可以往回走 20 步 |
 | `s` | 把目前套用的組合存成自訂 preset |

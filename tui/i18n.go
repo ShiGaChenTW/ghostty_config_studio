@@ -350,8 +350,14 @@ func txtSwitched(cat, name, desc string) string {
 		"Switched "+cat+" to "+name+" — "+desc)
 }
 func txtPreviewOpened(name string) string {
-	return tr("預覽視窗已開啟："+name+"（用完關掉即可，你的設定沒有被動到）",
-		"Preview window opened: "+name+" (close it when done; your config is untouched)")
+	return tr("預覽已開在右半邊："+name+"（再按 p 會換掉它，不會愈開愈多）",
+		"Previewing "+name+" on the right (pressing p again replaces it, never stacks)")
+}
+
+// previewTitle labels the preview window so it is obvious at a glance which
+// of two side-by-side windows is the throwaway one.
+func previewTitle(name string) string {
+	return tr("預覽："+name, "Preview: "+name)
 }
 
 // txtPreviewFailed names both candidate causes, because `open` reports them

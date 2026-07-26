@@ -830,12 +830,68 @@ func previewConfig(dir string, e entry) (string, error) {
 // Read-only with respect to the user's config by construction: nothing is
 // written but the temp file, and the launched process is told to read
 // nothing else.
+// previewMarker appears in both the temp config's name and therefore in the
+// preview process's argv, which is how the previous preview is found again.
+// Matching on it cannot reach a Ghostty the user started themselves: their
+// command line has no reason to contain this string.
+const previewMarker = "ghostty-studio-preview-"
+
+// closePreviousPreview ends the preview opened by the last `p`, so pressing it
+// down a list leaves one preview surface rather than a window per entry.
+// Signalled rather than closed through the UI: the surface has a shell running
+// in it, which is exactly when Ghostty asks "close this?", and a throwaway
+// preview should never ask.
+func closePreviousPreview() {
+	_ = exec.Command("pkill", "-f",
+		"Ghostty.app/Contents/MacOS/ghostty.*"+previewMarker).Run()
+}
+
+// dockRight returns config lines placing the window on the right half of the
+// screen, so the preview sits beside the workbench instead of on top of it.
+//
+// This is where a split would have gone. Ghostty cannot do it: `new_split`
+// is a keybind action taking only a direction, there is no CLI action that
+// creates one (`+new-window` answers "not supported on this platform"), and a
+// split inherits the config of the app instance that owns it — there is no
+// per-surface config file. A split would therefore render in the theme you are
+// trying to replace, which is the one thing a preview must not do. A second
+// instance is the only surface that can carry its own config, so it is placed
+// where the split would have been.
+//
+// Only the position is set. window-width/height are counted in grid cells and
+// the cell size depends on the font the previewed config chooses, so a cell
+// count computed here would be wrong for exactly the entries most worth
+// previewing. Ghostty's own default size, placed correctly, beats a guess.
+func dockRight() string {
+	out, err := exec.Command("osascript", "-e",
+		"tell application \"Finder\" to get bounds of window of desktop").Output()
+	if err != nil {
+		return ""
+	}
+	// "0, 0, 2048, 1332" — the third field is the screen width.
+	parts := strings.Split(strings.TrimSpace(string(out)), ",")
+	if len(parts) != 4 {
+		return ""
+	}
+	w, err := strconv.Atoi(strings.TrimSpace(parts[2]))
+	if err != nil || w <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("window-position-x = %d\nwindow-position-y = 0\n", w/2)
+}
+
 func previewEntry(dir string, e entry) error {
 	body, err := previewConfig(dir, e)
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp("", "ghostty-studio-preview-*.conf")
+	// A preview is throwaway by definition: it should not argue about being
+	// closed, and it should take the whole instance with it when it goes.
+	body += "\nconfirm-close-surface = false\nquit-after-last-window-closed = true\n"
+	body += "title = " + previewTitle(e.source+"/"+e.name) + "\n"
+	body += dockRight()
+
+	f, err := os.CreateTemp("", previewMarker+"*.conf")
 	if err != nil {
 		return err
 	}
@@ -856,6 +912,7 @@ func previewEntry(dir string, e entry) error {
 		return closeErr
 	}
 
+	closePreviousPreview()
 	out, err := exec.Command("open", "-na", "Ghostty.app", "--args",
 		"--config-default-files=false", "--config-file="+f.Name()).CombinedOutput()
 	if err != nil {
