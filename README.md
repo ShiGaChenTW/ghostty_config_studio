@@ -4,34 +4,210 @@ A terminal workbench for [Ghostty](https://ghostty.org): browse and apply
 themes, and build your own config files field by field — without hand-writing
 config syntax or memorising key names.
 
-> **中文 / English** — 介面與全部 200 個設定的說明都可以雙語切換，在任何畫面按
-> `L` 即可，選擇會被記住。English UI and descriptions available: press `L`.
+**[English](#english) · [繁體中文](#繁體中文)** — the app itself is bilingual too.
+Press `L` on any screen to switch; your choice is remembered.
 
 ```
-┌───────────────────────────────────────────────┐┌──────────────────────┐
-│ 主題與設定                                    ││ 預覽                 │
-│                                               ││                      │
-│ ▸ snedea/campfire                             ││ ● snedea/campfire    │
-│   [theme] (nature calm animated) Campfire ——  ││                      │
-│   ghostty/Nord                                ││ [ COLORS ]           │
-│   [theme] (dark) Ghostty 內建主題             ││   BG   ███  #0e0a06  │
-└───────────────────────────────────────────────┘└──────────────────────┘
+  GHOSTTY CONFIG STUDIO  ·  Browser                              489 items
+
+ ┌────────────────────────────┐┌──────────────────────────────────────────┐
+ │ Themes & Settings          ││ Preview                                  │
+ │                            ││                                          │
+ │ │ snedea/campfire          ││ ● snedea/campfire                        │
+ │ │ [theme] (nature calm)…   ││                                          │
+ │                            ││ [ COLORS ]                               │
+ │   ghostty/Nord             ││   BG   ███  #0e0a06                      │
+ │   [theme] (dark) built-in  ││   FG   ███  #d9c8a8                      │
+ └────────────────────────────┘└──────────────────────────────────────────┘
 ```
 
-## 這是什麼
+---
+
+## English
+
+### What it is
+
+- **Theme browser** — Ghostty's 460+ built-in themes plus optional community
+  packs in one searchable list. Move the cursor and the right pane previews the
+  theme's **actual colors**, not its raw text.
+- **Settings editor** — all 200 Ghostty settings across 14 category pages, each
+  with a description and its legal value range. Build a config by ticking
+  boxes; settings with fixed choices give you a picker instead of a text field.
+- **Non-destructive** — it manages exactly one marker-delimited block inside
+  `~/.config/ghostty/config`. Everything outside that block is never touched.
+
+### Install
+
+```bash
+brew install shigachentw/tap/ghostty-config-studio
+```
+
+Requires macOS and [Ghostty](https://ghostty.org). Go is only used at build
+time by Homebrew — you don't need it installed.
+
+<details>
+<summary>From source instead</summary>
+
+```bash
+git clone https://github.com/ShiGaChenTW/ghostty_config_studio.git
+cd ghostty_config_studio
+cd tui && go build -o ../ghostty-tui . && cd ..
+echo "export PATH=\"$PWD:\$PATH\"" >> ~/.zshrc
+```
+
+Needs Go 1.21+ and bash 3.2+ (macOS ships both — bash 3.2 is the stock shell).
+</details>
+
+### Getting started
+
+```bash
+ghostty-tui
+```
+
+**That's the whole setup.** Nothing to download — Ghostty's own 460+ themes and
+all 200 settings already live on your machine, and the workbench reads them
+directly.
+
+#### Optional: community config packs
+
+For more themes, including GLSL shader effects and cursor animations:
+
+```bash
+ghostty-setup
+```
+
+```
+  1) [  --  ] snedea      12 visual themes with GLSL shaders
+  2) [已匯入] naydenoff   6 color themes + 4 fonts + 5 full presets
+  3) [  --  ] sahaj-b     7 cursor-effect shaders
+
+  a) 全部匯入          import all
+  r) 移除全部素材      remove everything (back to a blank workbench)
+  q) 離開              quit
+```
+
+> The TUI is fully bilingual; the shell commands still prompt in Traditional
+> Chinese only.
+
+Pick packs **individually**, remove them any time, or import nothing at all.
+Everything imported — and every config you create — lives in
+`~/.config/ghostty-config-studio/`, so it survives `brew upgrade` and even
+`brew uninstall`. Sources and licenses: [`NOTICE.md`](NOTICE.md).
+
+### Keys
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` | Move; the right pane previews as you go |
+| `/` | Fuzzy search (works in Chinese too) |
+| `enter` | Apply the selected item |
+| `s` | Save the current combination as a custom preset |
+| `n` | Create a new config and open the settings editor |
+| `e` | List your editable configs (`d` deletes one) |
+| `L` | Switch 中文 / English |
+| `q` | Quit |
+
+Active items are marked `●` in the preview title; recently applied ones sort to
+the top on next launch, marked `★`.
+
+#### Settings editor
+
+Opened with `n` or `e`. 200 settings across 14 category pages:
+
+| Key | Action |
+|-----|--------|
+| `←`/`→` | Switch category page |
+| `↑`/`↓` | Move; the right pane shows the full description |
+| `space` | Tick / untick — ticking opens the value input |
+| `enter` | Change a ticked setting's value |
+| `s` | Save |
+| `L` | Switch 中文 / English |
+| `esc` | Back |
+
+Two kinds of input: **fixed-choice** settings (50 of them, e.g. `cursor-style`)
+list their options for arrow-key selection with no typing at all;
+**free-value** settings (e.g. `font-size`) prefill Ghostty's default and show
+the accepted range.
+
+### Command line
+
+Each category also has a standalone numbered-menu command:
+
+```bash
+ghostty-theme              # themes (--search browses the built-in 460+)
+ghostty-font               # fonts
+ghostty-preset             # full presets
+ghostty-cursor             # cursor-effect shaders
+ghostty-window             # background opacity / blur
+ghostty-cursor-style       # cursor shape / blink
+ghostty-clipboard          # clipboard behaviour
+ghostty-custom             # your own saved combinations
+ghostty-theme --current    # show the active selection per category
+ghostty-tui --version
+```
+
+### How it works
+
+Every selection is written into this marked block in
+`~/.config/ghostty/config`:
+
+```
+# >>> ghostty-picker managed >>>
+# category:theme
+config-file = /Users/you/.config/ghostty-config-studio/assets/shader-themes/config.campfire
+# category:font
+config-file = /Users/you/.config/ghostty-config-studio/assets/fonts/iosevka.conf
+# <<< ghostty-picker managed <<<
+```
+
+- Content **outside** the block is never modified
+- theme / font / cursor each take one line and stack independently
+- presets and custom combinations are complete sets — picking one replaces the
+  whole block
+- deleting a config that's currently applied also removes it from this block —
+  otherwise Ghostty can't open the referenced file and **the entire config
+  falls back to defaults**
+
+After applying, reload with `cmd+shift+,` or open a new window. Some settings —
+shaders especially — need a full quit and relaunch; the TUI offers to restart
+Ghostty for you.
+
+### Known limitations
+
+- The 12 shader themes bake in their own `background-opacity`,
+  `background-blur` and `cursor-style` as part of their ambiance. Combining one
+  with an independent choice for the same key gives unintuitive precedence, and
+  your explicit pick may lose. They behave predictably on their own, and
+  alongside color themes, built-in themes and presets.
+- Only tested on macOS.
+
+### License
+
+MIT — see [`LICENSE`](LICENSE).
+
+The optional config packs belong to their respective authors (all MIT) and are
+not included in this repository; see [`NOTICE.md`](NOTICE.md). Design decisions,
+including the ones only learned by getting them wrong first, are in
+[`DESIGN_NOTES.md`](DESIGN_NOTES.md).
+
+---
+
+## 繁體中文
+
+### 這是什麼
 
 - **主題瀏覽器**：把 Ghostty 內建的 460+ 個主題、以及選用的社群主題包收進同一個
-  可搜尋清單，游標移到哪就即時預覽該主題的**實際顏色**（不是原始文字）。
+  可搜尋清單，游標移到哪就即時預覽該主題的**實際顏色**，不是原始文字。
 - **設定編輯器**：Ghostty 全部 200 個設定項目，依用途分成 14 個分類頁，每項都附
-  **中文／英文說明與可填值範圍**（英文說明取自 Ghostty 官方文件）。用勾選的方式
-  建立自己的設定檔——固定選項的直接從選單挑，不用打字。
+  說明與可填值範圍。用勾選的方式建立自己的設定檔——固定選項的直接從選單挑，
+  不用打字。
 - **不覆寫你的設定檔**：只管理 `~/.config/ghostty/config` 裡一段用註解標記包住的
   區塊，區塊外的內容完全不動。
 
-## 安裝
+### 安裝
 
 ```bash
-brew install ShiGaChenTW/tap/ghostty-config-studio
+brew install shigachentw/tap/ghostty-config-studio
 ```
 
 一行就好。需要 macOS 與 [Ghostty](https://ghostty.org)；Go 只在 Homebrew 編譯時
@@ -47,10 +223,10 @@ cd tui && go build -o ../ghostty-tui . && cd ..
 echo "export PATH=\"$PWD:\$PATH\"" >> ~/.zshrc
 ```
 
-需要 Go 1.21 以上與 bash 3.2 以上（macOS 內建即可）。
+需要 Go 1.21 以上與 bash 3.2 以上（macOS 兩者都內建，bash 3.2 就是系統預設）。
 </details>
 
-## 開始使用
+### 開始使用
 
 ```bash
 ghostty-tui
@@ -59,7 +235,7 @@ ghostty-tui
 **這樣就能用了。** 不需要下載任何額外素材——Ghostty 自己內建的 460+ 個主題和
 全部 200 個設定項目本來就在你電腦上，工作台直接讀取。
 
-### 選用：匯入社群設定檔集
+#### 選用：匯入社群設定檔集
 
 想要更多主題（含 GLSL shader 特效、游標動畫）的話：
 
@@ -85,7 +261,7 @@ Ghostty Config Studio — 素材匯入
 設定檔都放在 `~/.config/ghostty-config-studio/`，不會被 `brew upgrade` 或
 `brew uninstall` 帶走。來源與授權見 [`NOTICE.md`](NOTICE.md)。
 
-## TUI 操作
+### 操作按鍵
 
 | 按鍵 | 動作 |
 |------|------|
@@ -100,14 +276,14 @@ Ghostty Config Studio — 素材匯入
 
 目前生效的項目會在預覽標題前標 `●`，最近套用過的項目下次開啟時排最前面並標 `★`。
 
-### 設定編輯器
+#### 設定編輯器
 
 按 `n` 或 `e` 進入。200 個設定分成 14 個分類頁：
 
 | 按鍵 | 動作 |
 |------|------|
 | `←`/`→` | 切換分類頁 |
-| `↑`/`↓` | 移動，右側顯示該設定的完整中文說明 |
+| `↑`/`↓` | 移動，右側顯示該設定的完整說明 |
 | `空白` | 勾選/取消，勾選時跳出數值輸入 |
 | `enter` | 修改已勾選項目的值 |
 | `s` | 儲存 |
@@ -118,7 +294,7 @@ Ghostty Config Studio — 素材匯入
 選，完全不用打字；**自由數值**的（例如 `font-size`）會預先帶入 Ghostty 的預設值
 並顯示可填範圍。
 
-## 指令列介面
+### 指令列介面
 
 TUI 之外，每個分類也有獨立的數字選單指令：
 
@@ -132,18 +308,19 @@ ghostty-cursor-style       # 游標形狀 / 閃爍
 ghostty-clipboard          # 剪貼簿行為
 ghostty-custom             # 你自己存的組合
 ghostty-theme --current    # 顯示目前每個分類的選擇
+ghostty-tui --version
 ```
 
-## 運作方式
+### 運作方式
 
 所有設定都寫在 `~/.config/ghostty/config` 的這段標記區塊裡：
 
 ```
 # >>> ghostty-picker managed >>>
 # category:theme
-config-file = /path/to/assets/shader-themes/config.campfire
+config-file = /Users/you/.config/ghostty-config-studio/assets/shader-themes/config.campfire
 # category:font
-config-file = /path/to/assets/fonts/iosevka.conf
+config-file = /Users/you/.config/ghostty-config-studio/assets/fonts/iosevka.conf
 # <<< ghostty-picker managed <<<
 ```
 
@@ -156,7 +333,7 @@ config-file = /path/to/assets/fonts/iosevka.conf
 套用後在 Ghostty 按 `cmd+shift+,` 重新載入，或開新視窗。有些設定（尤其 shader）
 需要完全重啟 Ghostty 才會生效，TUI 在套用後會問你要不要立刻重啟。
 
-## 已知限制
+### 已知限制
 
 - 12 個 shader 主題各自內建了 `background-opacity` / `background-blur` /
   `cursor-style` 等「氛圍」設定。同時使用 shader 主題與 `ghostty-window` 這類
@@ -164,10 +341,10 @@ config-file = /path/to/assets/fonts/iosevka.conf
   單獨使用、或搭配色彩主題 / 內建主題 / preset 時正常。
 - 只在 macOS 測試過。
 
-## 授權
+### 授權
 
 MIT — 見 [`LICENSE`](LICENSE)。
 
 選用的設定檔集屬於各自作者，皆為 MIT，未包含在本 repo 中；來源與授權見
-[`NOTICE.md`](NOTICE.md)。設計決策與實作上的取捨記在
+[`NOTICE.md`](NOTICE.md)。設計決策與實作上踩過才學到的取捨記在
 [`DESIGN_NOTES.md`](DESIGN_NOTES.md)。

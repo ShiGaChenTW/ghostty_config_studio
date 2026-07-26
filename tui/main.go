@@ -1568,7 +1568,16 @@ func (m model) View() string {
 	return indentBlock(body, sideMargin)
 }
 
+// version is stamped by hand at release time and must match the tag the
+// Homebrew formula points at. Reported by `ghostty-tui --version` so a bug
+// report can say which build it came from.
+const version = "0.1.0"
+
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Println("ghostty-config-studio", version)
+		return
+	}
 	dir, err := scriptDir()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "couldn't resolve script directory:", err)
