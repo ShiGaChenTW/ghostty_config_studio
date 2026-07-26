@@ -944,6 +944,7 @@ type model struct {
 }
 
 func newModel(dir string) model {
+	loadLang()
 	entries := applyRecentOrdering(buildEntries(dir), loadRecentKeys())
 	items := make([]list.Item, len(entries))
 	for i, e := range entries {
@@ -1006,7 +1007,7 @@ func (m *model) updatePreviewForSelection() {
 			m.previewContent = helpStyle.Render(fmt.Sprintf("%s = %s", item.settingKey, item.value))
 			return
 		}
-		m.previewContent = helpStyle.Render("(no local preview for this built-in theme)")
+		m.previewContent = helpStyle.Render(txtNoPreview())
 		return
 	}
 
@@ -1077,7 +1078,7 @@ func (m model) saveCurrentCombo(name string) (tea.Model, tea.Cmd) {
 		m.statusOK = false
 		return m, nil
 	}
-	m.status = "Saved current selection as custom preset: " + name
+	m.status = txtSaved(name, 0)
 	m.statusOK = true
 	m = m.refreshEntries()
 	return m, nil
@@ -1092,7 +1093,7 @@ func (m model) saveCurrentCombo(name string) (tea.Model, tea.Cmd) {
 func (m model) startNewFile(name string) (tea.Model, tea.Cmd) {
 	path := filepath.Join(customPresetDir(), name+".conf")
 	if _, err := os.Stat(path); err == nil {
-		m.status = "already exists: " + name
+		m.status = txtAlreadyExists(name)
 		m.statusOK = false
 		return m, nil
 	}
@@ -1117,7 +1118,7 @@ func (m model) startNewFile(name string) (tea.Model, tea.Cmd) {
 // under customPresetDir() (category "custom") are editable in place.
 func (m model) openFieldEditor(item entry) (tea.Model, tea.Cmd) {
 	if item.category != "custom" || item.kind != "file" {
-		m.status = "唯讀：vendor 進來的設定檔不能直接編輯，按 n 建立新的自訂設定檔"
+		m.status = txtReadOnly()
 		m.statusOK = false
 		return m, nil
 	}
@@ -1167,9 +1168,9 @@ func (m model) deleteCustomConfig(e entry) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if len(applied) > 0 {
-		m.status = fmt.Sprintf("已刪除 %s，並從 Ghostty 設定移除（%s）", e.name, strings.Join(applied, "、"))
+		m.status = txtDeletedAndCleared(e.name, strings.Join(applied, "、"))
 	} else {
-		m.status = "已刪除 " + e.name
+		m.status = txtDeleted(e.name)
 	}
 	m.statusOK = true
 	m.current = currentSelections(m.dir)
@@ -1309,7 +1310,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter":
 				name := strings.TrimSpace(m.nameInput.Value())
 				if name == "" {
-					m.status = "give it a name first"
+					m.status = txtNameFirst()
 					m.statusOK = false
 					return m, nil
 				}
@@ -1328,6 +1329,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case key.Matches(msg, key.NewBinding(key.WithKeys("q", "ctrl+c"))):
 				return m, tea.Quit
+			case key.Matches(msg, key.NewBinding(key.WithKeys("L"))):
+				// Uppercase L: lowercase l is vim-style "right" in the
+				// editor, so the shifted key keeps both free.
+				toggleLang()
+				// Item descriptions are language-dependent, so the list's
+				// items have to be rebuilt for the change to show.
+				m = m.refreshEntries()
+				m.lastPreviewKey = ""
+				m.updatePreviewForSelection()
+				m.status = ""
+				return m, nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("s"))):
 				m.showNameDialog = true
 				m.namePurpose = "save-current"
@@ -1347,7 +1359,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// on whatever happens to be selected and then refusing.
 				m.editable = editableEntries(m.dir)
 				if len(m.editable) == 0 {
-					m.status = "還沒有可編輯的自訂設定檔 — 按 [n] 建立一個"
+					m.status = txtNoEditable()
 					m.statusOK = false
 					return m, nil
 				}
@@ -1365,7 +1377,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.status = fmt.Sprintf("failed to switch %s to %s/%s: %s", item.category, item.source, item.name, detail)
 						m.statusOK = false
 					} else {
-						m.status = fmt.Sprintf("Switched %s to: %s/%s -- %s", item.category, item.source, item.name, item.desc)
+						m.status = txtSwitched(item.category, item.source+"/"+item.name, item.desc)
 						m.statusOK = true
 						m.current = currentSelections(m.dir)
 						m.showRestartPrompt = true
@@ -1416,34 +1428,30 @@ func (m model) View() string {
 		return "loading…"
 	}
 	if m.width < minWidth || m.height < minHeight {
-		msg := fmt.Sprintf(
-			"終端機視窗太小 (%dx%d)\n請放大到至少 %dx%d 再試一次",
-			m.width, m.height, minWidth, minHeight,
-		)
+		msg := txtTooSmall(m.width, m.height, minWidth, minHeight)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, errorStyle.Render(msg))
 	}
 	if m.showRestartPrompt {
-		msg := bracket("restart required") + "\n\n" +
-			helpStyle.Render("有些設定（例如 shader）reload 不一定會生效。\n"+
-				"需要完全關閉並重新開啟 Ghostty 才會確定套用。") + "\n\n" +
-			titleStyle.Render("現在重新啟動 Ghostty 嗎？") + "\n\n" +
-			statusStyle.Render("[y] 是，重啟") + "   " + errorStyle.Render("[n] 否，稍後手動重啟")
+		msg := bracket(txtRestartTitle()) + "\n\n" +
+			helpStyle.Render(txtRestartBody()) + "\n\n" +
+			titleStyle.Render(txtRestartAsk()) + "\n\n" +
+			statusStyle.Render(txtRestartYes()) + "   " + errorStyle.Render(txtRestartNo())
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, msg)
 	}
 	if m.showDeleteConfirm {
 		t := m.deleteTarget
 		var v []string
-		v = append(v, bracket("刪除設定檔"))
+		v = append(v, bracket(txtDeleteTitle()))
 		v = append(v, "")
-		v = append(v, phosphorStyle.Render("確定要刪除「"+t.name+"」嗎？"))
-		v = append(v, helpStyle.Render("檔案會直接從硬碟移除，無法復原。"))
+		v = append(v, phosphorStyle.Render(txtDeleteAsk(t.name)))
+		v = append(v, helpStyle.Render(txtDeleteWarn()))
 		if applied := m.appliedCategoriesFor(t); len(applied) > 0 {
 			v = append(v, "")
-			v = append(v, errorStyle.Render("⚠ 這個設定檔目前正在套用中（"+strings.Join(applied, "、")+"）"))
-			v = append(v, helpStyle.Render("  刪除時會一併從 Ghostty 設定移除，否則設定會整份失效。"))
+			v = append(v, errorStyle.Render(txtDeleteApplied(strings.Join(applied, "、"))))
+			v = append(v, helpStyle.Render(txtDeleteAppliedNote()))
 		}
 		v = append(v, "")
-		v = append(v, errorStyle.Render("[y] 確定刪除")+"   "+helpStyle.Render("[n] 取消"))
+		v = append(v, errorStyle.Render(txtDeleteYes())+"   "+helpStyle.Render(txtDeleteNo()))
 		content := strings.Join(v, "\n")
 		w := minInt(maxInt(lipglossMaxWidth(v)+2, 48), m.width-8)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
@@ -1451,12 +1459,12 @@ func (m model) View() string {
 	}
 	if m.showEditPicker {
 		var v []string
-		v = append(v, bracket("選擇要編輯的設定檔"))
-		v = append(v, helpStyle.Render("只列出你自己建立的設定檔；vendor 進來的是唯讀的，不會出現在這裡。"))
+		v = append(v, bracket(txtPickConfigTitle()))
+		v = append(v, helpStyle.Render(txtPickConfigBody()))
 		v = append(v, "")
 		for i, it := range m.editable {
 			n := len(parseFieldRows(it.value))
-			row := fmt.Sprintf("%s  (%d 項設定)", it.name, n)
+			row := it.name + "  " + txtSettingCount(n)
 			if i == m.editPickIndex {
 				v = append(v, statusStyle.Render("▸ "+row))
 			} else {
@@ -1464,7 +1472,7 @@ func (m model) View() string {
 			}
 		}
 		v = append(v, "")
-		v = append(v, helpStyle.Render("[↑/↓] 選擇  [enter] 編輯  [d] 刪除  [esc] 取消"))
+		v = append(v, helpStyle.Render(txtPickConfigFooter()))
 		content := strings.Join(v, "\n")
 		w := minInt(maxInt(lipglossMaxWidth(v)+2, 44), m.width-8)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
@@ -1473,14 +1481,14 @@ func (m model) View() string {
 	if m.showNameDialog {
 		var title, body string
 		if m.namePurpose == "new-file" {
-			title, body = "new custom config", "建立一個空白的自訂設定檔，接著逐欄位加設定。"
+			title, body = txtNewConfigTitle(), txtNewConfigBody()
 		} else {
-			title, body = "save custom preset", "把目前套用的組合存成一個自訂 preset，以後直接切回來。"
+			title, body = txtSaveComboTitle(), txtSaveComboBody()
 		}
 		msg := bracket(title) + "\n\n" +
 			helpStyle.Render(body) + "\n\n" +
 			m.nameInput.View() + "\n\n" +
-			helpStyle.Render("[enter] 確定   [esc] 取消")
+			helpStyle.Render(txtConfirmFoot())
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, msg)
 	}
 	if m.editor != nil {
@@ -1489,7 +1497,7 @@ func (m model) View() string {
 
 	// Left pane gets the same "name your own function on row one" treatment
 	// as the editor's panes.
-	listView := labelStyle.Render("主題與設定") + "\n" + m.list.View()
+	listView := labelStyle.Render(txtPaneList()) + "\n" + m.list.View()
 	// list.Model's SetSize(width, height) budgets height for the item area
 	// only — its title/status/pagination/help chrome is added on top, so
 	// the actual listView is taller than m.bodyHeight. Measure it directly
@@ -1505,7 +1513,7 @@ func (m model) View() string {
 		}
 		previewName = item.source + "/" + item.name
 	}
-	previewBody := labelStyle.Render("預覽") + "\n\n" +
+	previewBody := labelStyle.Render(txtPanePreview()) + "\n\n" +
 		marker + titleStyle.Render(previewName) + "\n\n" + m.previewContent
 	// Pad to targetHeight ourselves rather than trusting lipgloss's
 	// Style.Height() to add the missing blank lines — it undercounted
@@ -1524,13 +1532,13 @@ func (m model) View() string {
 	)
 
 	status := m.statusLine()
-	help := helpStyle.Render("[↑/↓] 移動  [/] 搜尋  [enter] 套用  [s] 存目前組合  [n] 新設定檔  [e] 編輯設定  [q] 離開")
+	help := helpStyle.Render(txtBrowserFooter())
 
 	// Orange title band with a drop shadow, spanning the same width as the
 	// two panes below (listWidth+previewWidth+8 counts each pane's chrome).
 	left := bannerTitleStyle.Render("GHOSTTY CONFIG STUDIO") +
-		bannerDimStyle.Render("  ·  設定瀏覽器")
-	right := bannerDimStyle.Render(fmt.Sprintf("%d 個項目", len(m.list.Items())))
+		bannerDimStyle.Render("  ·  "+txtBrowserMode())
+	right := bannerDimStyle.Render(txtItemCount(len(m.list.Items())))
 	head := bannerBlock(left, right, m.listWidth+m.previewWidth+8)
 
 	// Two blank rows above the title block, one below — same rhythm as the
@@ -1582,7 +1590,7 @@ func (m model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.statusOK = false
 				return m, nil
 			}
-			m.status = fmt.Sprintf("Saved: %s（%d 項設定）", e.name, len(e.checked))
+			m.status = txtSaved(e.name, len(e.checked))
 			m.statusOK = true
 			e.newFile = false
 			return m, nil

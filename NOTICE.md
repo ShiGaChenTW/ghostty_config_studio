@@ -29,9 +29,11 @@ already on your machine, via `ghostty +list-themes`.
 `tui/keycatalog.go` lists every Ghostty configuration key with its default and
 its documented legal values. Those facts were extracted by parsing the output
 of `ghostty +show-config --default=true --docs=true` from a local Ghostty
-install; Ghostty itself is MIT-licensed. The Traditional Chinese names,
-descriptions, and category assignments in that file are original to this
-project.
+install; Ghostty itself is MIT-licensed. The English descriptions are
+Ghostty's own documentation text from that same output (17 keys whose doc
+line is empty or generic boilerplate are hand-written). The Traditional
+Chinese names, descriptions, value hints, and the category assignments are
+original to this project.
 
 ## Evaluated and not included
 

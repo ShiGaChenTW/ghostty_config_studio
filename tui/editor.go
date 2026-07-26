@@ -17,7 +17,6 @@ package main
 // range. Checked rows are exactly what gets written to the config file.
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -139,7 +138,7 @@ func (e *editorState) openValueEditor(ki keyInfo) tea.Cmd {
 		cur = ki.defaultVal
 	}
 	e.input.SetValue(cur)
-	e.input.Placeholder = ki.valueHint
+	e.input.Placeholder = ki.rangeLabel()
 	e.input.Focus()
 	return textinput.Blink
 }
@@ -200,6 +199,9 @@ func (e *editorState) update(msg tea.KeyMsg) tea.Cmd {
 
 	rows := e.curRows()
 	switch msg.String() {
+	case "L":
+		toggleLang()
+		return nil
 	case "left", "h", "shift+tab":
 		if e.catIndex > 0 {
 			e.catIndex--
@@ -276,7 +278,7 @@ func (e *editorState) view(width, height int, status string) string {
 	}
 	end := minInt(start+listRows, len(rows))
 
-	lines := []string{labelStyle.Render("設定項目"), ""}
+	lines := []string{labelStyle.Render(txtPaneItems()), ""}
 	for i := start; i < end; i++ {
 		ki := rows[i]
 		box := "[ ]"
@@ -284,7 +286,7 @@ func (e *editorState) view(width, height int, status string) string {
 			box = "[x]"
 			_ = v
 		}
-		label := fmt.Sprintf("%s %s (%s)", box, ki.key, ki.zhName)
+		label := box + " " + ki.name()
 		val := ki.rangeLabel()
 		if v, ok := e.checked[ki.key]; ok && v != "" {
 			val = "= " + v
@@ -304,22 +306,22 @@ func (e *editorState) view(width, height int, status string) string {
 	listPane := box(strings.Join(lines, "\n"), listW, bodyH)
 
 	// Detail pane on the right, describing the row under the cursor.
-	det := []string{labelStyle.Render("詳細說明"), ""}
+	det := []string{labelStyle.Render(txtPaneDetail()), ""}
 	if ki, ok := e.curRow(); ok {
 		det = append(det, titleStyle.Render(ki.key))
 		det = append(det, "")
-		det = append(det, wrapText(ki.desc, detailW)...)
+		det = append(det, wrapText(ki.desc(), detailW)...)
 		det = append(det, "")
-		det = append(det, labelStyle.Render("可填值"))
+		det = append(det, labelStyle.Render(txtAllowedValue()))
 		det = append(det, wrapText(ki.rangeLabel(), detailW)...)
 		if ki.defaultVal != "" {
 			det = append(det, "")
-			det = append(det, labelStyle.Render("Ghostty 預設"))
+			det = append(det, labelStyle.Render(txtDefault()))
 			det = append(det, wrapText(ki.defaultVal, detailW)...)
 		}
 		if v, ok := e.checked[ki.key]; ok && v != "" {
 			det = append(det, "")
-			det = append(det, statusStyle.Render("目前設定 = "+v))
+			det = append(det, statusStyle.Render(txtCurrentValue(v)))
 		}
 	}
 	for len(det) < bodyH {
@@ -335,12 +337,12 @@ func (e *editorState) view(width, height int, status string) string {
 	// Orange title band with a drop shadow, same component as the browser
 	// screen so both headers read as one piece of chrome.
 	left := bannerTitleStyle.Render("GHOSTTY CONFIG STUDIO") +
-		bannerDimStyle.Render("  ·  設定編輯器  ·  ") +
+		bannerDimStyle.Render("  ·  "+txtEditorMode()+"  ·  ") +
 		bannerTitleStyle.Render(e.name)
-	right := bannerDimStyle.Render(fmt.Sprintf("已勾選 %d / %d 項", len(e.checked), len(keyCatalog)))
+	right := bannerDimStyle.Render(txtCheckedCount(len(e.checked), len(keyCatalog)))
 	head := bannerBlock(left, right, innerW)
 
-	foot := helpStyle.Render("[←/→] 切換分類  [↑/↓] 移動  [空白] 勾選/取消  [enter] 改值  [s] 儲存  [esc] 離開")
+	foot := helpStyle.Render(txtEditorFooter())
 
 	// Two blank rows above the header, one below it.
 	parts := []string{"", "", head, ""}
@@ -361,10 +363,10 @@ func (e *editorState) view(width, height int, status string) string {
 		ki, _ := lookupKey(e.editingKey)
 		var v []string
 		v = append(v, bracket(ki.key))
-		v = append(v, helpStyle.Render(ki.desc))
+		v = append(v, helpStyle.Render(ki.desc()))
 		v = append(v, "")
 		if e.usingPicker {
-			v = append(v, labelStyle.Render("選一個值（不用打字）"))
+			v = append(v, labelStyle.Render(txtPickValue()))
 			v = append(v, "")
 			for i, opt := range ki.validVals {
 				mark := "  "
@@ -373,11 +375,11 @@ func (e *editorState) view(width, height int, status string) string {
 				}
 				note := ""
 				if opt == ki.defaultVal {
-					note = helpStyle.Render("  （Ghostty 預設）")
+					note = helpStyle.Render(txtIsDefault())
 				}
 				label := opt
 				if opt == " " {
-					label = "(留空 — 交給程式決定)"
+					label = txtBlankValue()
 				}
 				if i == e.optIndex {
 					v = append(v, statusStyle.Render(mark+label)+note)
@@ -386,16 +388,16 @@ func (e *editorState) view(width, height int, status string) string {
 				}
 			}
 			v = append(v, "")
-			v = append(v, helpStyle.Render("[↑/↓] 選  [enter] 確定  [esc] 取消"))
+			v = append(v, helpStyle.Render(txtValuePickerFooter()))
 		} else {
-			v = append(v, labelStyle.Render("可填範圍：")+" "+ki.rangeLabel())
+			v = append(v, labelStyle.Render(txtAllowedRange())+" "+ki.rangeLabel())
 			if ki.defaultVal != "" {
-				v = append(v, labelStyle.Render("預設值：")+" "+ki.defaultVal)
+				v = append(v, labelStyle.Render(txtDefaultValue())+" "+ki.defaultVal)
 			}
 			v = append(v, "")
 			v = append(v, e.input.View())
 			v = append(v, "")
-			v = append(v, helpStyle.Render("[enter] 確定  [esc] 取消"))
+			v = append(v, helpStyle.Render(txtTextValueFooter()))
 		}
 		content := strings.Join(v, "\n")
 		w := minInt(maxInt(lipglossMaxWidth(v)+2, 40), width-8)
@@ -423,7 +425,7 @@ func (e *editorState) renderTabs(width int) []string {
 		if i == e.catIndex {
 			style = tabActiveStyle
 		}
-		tab := style.Render(" "+c+" ") + tabShadowStyle.Render(" ")
+		tab := style.Render(" "+categoryLabel(c)+" ") + tabShadowStyle.Render(" ")
 		tw := lipgloss.Width(tab)
 		if lineW > 0 && lineW+1+tw > width {
 			rows = append(rows, line, "") // blank spacer between tab rows

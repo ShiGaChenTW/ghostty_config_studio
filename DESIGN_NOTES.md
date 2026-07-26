@@ -85,6 +85,26 @@ the vendored files byte-identical: in `snedea/ghostty-themes`,
 `config.pico`, comments and colors alike. The menu shows each its correct
 description, but the 18 theme entries yield 16 visually distinct results.
 
+## Localisation
+
+The UI ships in Traditional Chinese and English, toggled with `L` and
+remembered in `$GHOSTTY_DIR/.ghostty-tui-lang`.
+
+`lang` is a package-level variable rather than a field threaded through
+render calls: it's read by dozens of leaf functions — including `keyInfo`
+methods that have no access to the model — and only changes on an explicit
+keypress, so threading it would add noise without buying anything.
+
+English key descriptions are Ghostty's own doc text, extracted from the same
+`+show-config --docs=true` parse that produced the defaults. Only 17 of the
+200 needed hand-writing, where Ghostty's first doc line is empty or generic
+boilerplate. The value-range hints are formulaic enough that a phrase map
+covers all 200 with full coverage asserted at generation time.
+
+Toggling on the browser screen rebuilds the list items: descriptions are
+language-dependent and bubbles/list caches what it was given, so without a
+rebuild the rows keep the old language until something else changes them.
+
 ## Portability
 
 **macOS ships bash 3.2.** No `declare -A`, no `${var^}`. Everything here runs

@@ -4,7 +4,8 @@ A terminal workbench for [Ghostty](https://ghostty.org): browse and apply
 themes, and build your own config files field by field — without hand-writing
 config syntax or memorising key names.
 
-> 說明以繁體中文為主，介面亦為繁體中文。
+> **中文 / English** — 介面與全部 200 個設定的說明都可以雙語切換，在任何畫面按
+> `L` 即可，選擇會被記住。English UI and descriptions available: press `L`.
 
 ```
 ┌───────────────────────────────────────────────┐┌──────────────────────┐
@@ -22,8 +23,8 @@ config syntax or memorising key names.
 - **主題瀏覽器**：把 Ghostty 內建的 460+ 個主題、以及選用的社群主題包收進同一個
   可搜尋清單，游標移到哪就即時預覽該主題的**實際顏色**（不是原始文字）。
 - **設定編輯器**：Ghostty 全部 200 個設定項目，依用途分成 14 個分類頁，每項都附
-  **繁體中文說明與可填值範圍**。用勾選的方式建立自己的設定檔——固定選項的直接
-  從選單挑，不用打字。
+  **中文／英文說明與可填值範圍**（英文說明取自 Ghostty 官方文件）。用勾選的方式
+  建立自己的設定檔——固定選項的直接從選單挑，不用打字。
 - **不覆寫你的設定檔**：只管理 `~/.config/ghostty/config` 裡一段用註解標記包住的
   區塊，區塊外的內容完全不動。
 
@@ -92,6 +93,7 @@ Ghostty Config Studio — 素材匯入
 | `s` | 把目前套用的組合存成自訂 preset |
 | `n` | 新建一個自訂設定檔，進入設定編輯器 |
 | `e` | 列出可編輯的自訂設定檔（可選擇編輯或按 `d` 刪除） |
+| `L` | 切換中文 / English |
 | `q` | 離開 |
 
 目前生效的項目會在預覽標題前標 `●`，最近套用過的項目下次開啟時排最前面並標 `★`。
@@ -107,6 +109,7 @@ Ghostty Config Studio — 素材匯入
 | `空白` | 勾選/取消，勾選時跳出數值輸入 |
 | `enter` | 修改已勾選項目的值 |
 | `s` | 儲存 |
+| `L` | 切換中文 / English |
 | `esc` | 離開 |
 
 數值輸入分兩種：**固定選項**的（50 個，例如 `cursor-style`）直接列出選項用方向鍵
