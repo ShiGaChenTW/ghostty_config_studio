@@ -59,6 +59,13 @@ bar cutting through the title band. Each segment carries its own background.
 preview painted a background-filled text panel and truncated unpredictably.
 Drawing `█` in the foreground color has been completely stable.
 
+**A box must clamp its content, not just pad it.** `box()` padded short lines
+but left long ones alone, so any line over budget shoved the right-hand frame
+out with it and the border stepped sideways mid-card. bubbles/list renders two
+columns wider than the size it was given once its filter prompt is up, which is
+exactly when it showed. Truncate with `ansi.Truncate`, which counts display
+cells and leaves escape sequences intact; a rune-slice cut would sever them.
+
 **bubbles/list filters asynchronously.** The keystroke returns a `Cmd`, and the
 resulting `FilterMatchesMsg` arrives as a plain `tea.Msg`. Routing all non-key
 messages to a single list means any other list's filter silently never applies.
@@ -84,6 +91,17 @@ the vendored files byte-identical: in `snedea/ghostty-themes`,
 `config.cyberpunk` duplicates `config.matrix` and `config.neon` duplicates
 `config.pico`, comments and colors alike. The menu shows each its correct
 description, but the 18 theme entries yield 16 visually distinct results.
+
+## Search
+
+The filter indexes both languages at once: `searchAliases` folds each row's
+category and style tags in under their English and Chinese spellings, so
+`/cursor` and `/游標` return the same rows whichever language is on screen.
+
+Ghostty's 460+ built-in themes all carry one identical description line, which
+is deliberately kept **out** of the index. It discriminates between none of
+them while handing the fuzzy matcher another twenty characters to find a
+subsequence in; including it took a `/retro` query from 31 hits to 282.
 
 ## Localisation
 

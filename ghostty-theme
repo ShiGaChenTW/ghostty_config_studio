@@ -38,7 +38,7 @@ if [ "${1:-}" = "--search" ]; then
     [ -n "$theme_name" ] || continue
     matched=$((matched + 1))
     [ "$matched" -gt "$max_results" ] && continue
-    names+=("$theme_name"); descs+=("Ghostty 內建主題"); paths+=("$theme_name")
+    names+=("$theme_name"); descs+=("$(t "Ghostty 內建主題" "Ghostty built-in theme")"); paths+=("$theme_name")
     shader_srcs+=(""); kinds+=("name"); sources+=("ghostty")
   done < <("$ghostty_bin" +list-themes 2>/dev/null | grep -i -- "$keyword")
 

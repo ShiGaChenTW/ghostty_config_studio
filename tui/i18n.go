@@ -67,6 +67,76 @@ func saveLang() {
 	_ = os.WriteFile(langFilePath(), []byte(code+"\n"), 0o644)
 }
 
+// --- Entry labels ------------------------------------------------------------
+//
+// The bracketed category and the style tags on every list row. Translated so
+// the row reads in one language, but see entry.FilterValue: the search index
+// keeps BOTH languages, so /cursor and /游標 both find the same rows whichever
+// language the interface happens to be in.
+
+var categoryZH = map[string]string{
+	"theme":          "主題",
+	"font":           "字型",
+	"preset":         "完整設定",
+	"custom":         "自訂",
+	"cursor":         "游標特效",
+	"cursor-style":   "游標形狀",
+	"cursor-blink":   "游標閃爍",
+	"opacity":        "背景透明度",
+	"blur":           "背景模糊",
+	"clipboard-trim": "剪貼簿修剪",
+	"copy-on-select": "選取即複製",
+}
+
+var styleTagZH = map[string]string{
+	"nature":    "自然",
+	"calm":      "沉靜",
+	"animated":  "動態",
+	"retro":     "復古",
+	"vibrant":   "鮮豔",
+	"cyberpunk": "賽博龐克",
+	"dark":      "暗色",
+	"light":     "亮色",
+	"minimal":   "極簡",
+}
+
+// categoryTag is the bracketed label at the head of a row's description.
+func categoryTag(cat string) string {
+	if lang == langZH {
+		if zh, ok := categoryZH[cat]; ok {
+			return zh
+		}
+	}
+	return cat
+}
+
+func styleTag(tag string) string {
+	if lang == langZH {
+		if zh, ok := styleTagZH[tag]; ok {
+			return zh
+		}
+	}
+	return tag
+}
+
+// searchAliases returns every spelling a term is known by, so the filter can
+// index both languages at once regardless of which one is on screen.
+func searchAliases(cat string, tags []string) string {
+	out := []string{cat}
+	if zh, ok := categoryZH[cat]; ok {
+		out = append(out, zh)
+	}
+	for _, t := range tags {
+		out = append(out, t)
+		if zh, ok := styleTagZH[t]; ok {
+			out = append(out, zh)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
+func txtBuiltinTheme() string { return tr("Ghostty 內建主題", "Ghostty built-in theme") }
+
 // --- UI strings ------------------------------------------------------------
 
 func txtBrowserMode() string  { return tr("設定瀏覽器", "Browser") }
@@ -77,6 +147,8 @@ func txtPaneItems() string    { return tr("設定項目", "Settings") }
 func txtPaneDetail() string   { return tr("詳細說明", "Details") }
 func txtAllowedValue() string { return tr("可填值", "Allowed") }
 func txtDefault() string      { return tr("Ghostty 預設", "Ghostty default") }
+
+func txtFilterPrompt() string { return tr("篩選：", "Filter: ") }
 
 // bubbles/list builds its own "N items" status line from these two words.
 func txtStatusItemName() (string, string) {
@@ -148,10 +220,12 @@ func txtRestartBody() string {
 	return tr("有些設定（例如 shader）reload 不一定會生效。\n需要完全關閉並重新開啟 Ghostty 才會確定套用。",
 		"Some settings (shaders especially) don't reliably take effect on reload.\nA full quit and relaunch of Ghostty is needed to be sure.")
 }
-func txtRestartAsk() string  { return tr("現在重新啟動 Ghostty 嗎？", "Restart Ghostty now?") }
-func txtRestartYes() string  { return tr("[y] 是，重啟", "[y] yes, restart") }
-func txtRestartNo() string   { return tr("[n] 否，稍後手動重啟", "[n] no, I'll restart later") }
-func txtConfirmFoot() string { return tr("[enter] 確定   [esc] 取消", "[enter] confirm   [esc] cancel") }
+func txtRestartAsk() string { return tr("現在重新啟動 Ghostty 嗎？", "Restart Ghostty now?") }
+func txtRestartYes() string { return tr("[y] 是，重啟", "[y] yes, restart") }
+func txtRestartNo() string  { return tr("[n] 否，稍後手動重啟", "[n] no, I'll restart later") }
+func txtConfirmFoot() string {
+	return tr("[enter] 確定   [esc] 取消", "[enter] confirm   [esc] cancel")
+}
 
 func txtNewConfigTitle() string { return tr("new custom config", "new custom config") }
 func txtNewConfigBody() string {

@@ -18,6 +18,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -48,14 +50,34 @@ func (e entry) Title() string {
 	return e.source + "/" + e.name
 }
 func (e entry) Description() string {
-	tag := "[" + e.category + "]"
+	tag := "[" + categoryTag(e.category) + "]"
 	if len(e.tags) > 0 {
-		tag += " (" + strings.Join(e.tags, " ") + ")"
+		labels := make([]string, len(e.tags))
+		for i, t := range e.tags {
+			labels[i] = styleTag(t)
+		}
+		tag += " (" + strings.Join(labels, " ") + ")"
 	}
 	return tag + " " + e.desc
 }
 func (e entry) FilterValue() string {
-	return e.source + " " + e.name + " " + e.desc + " " + e.category + " " + strings.Join(e.tags, " ")
+	// Category and style tags go in under both languages, always. Someone
+	// reading the Chinese interface still types /nord, and someone reading
+	// the English one may well have learned the row as 游標.
+	return e.source + " " + e.name + " " + e.filterDesc() + " " +
+		searchAliases(e.category, e.tags)
+}
+
+// filterDesc is the description as the fuzzy filter sees it. Ghostty's 460+
+// built-in themes all carry the same one-line label, which discriminates
+// between exactly none of them while handing the matcher another twenty
+// characters to find a subsequence in. Leaving it out keeps a query like
+// /retro ranked on the handful of rows that really are retro.
+func (e entry) filterDesc() string {
+	if e.category == "theme" && e.kind == "name" {
+		return ""
+	}
+	return e.desc
 }
 
 var shaderDescOverride = map[string]string{
@@ -665,7 +687,7 @@ func buildEntries(dir string) []entry {
 					preview = ""
 				}
 				items = append(items, entry{
-					source: "ghostty", name: name, desc: "Ghostty 內建主題", category: "theme",
+					source: "ghostty", name: name, desc: txtBuiltinTheme(), category: "theme",
 					kind: "name", value: name, previewPath: preview, tags: autoTagsFor(preview),
 				})
 			}
@@ -900,6 +922,13 @@ func box(content string, width, height int) string {
 	out := make([]string, 0, height+2)
 	out = append(out, frame.Render("┌"+horiz+"┐"))
 	for _, l := range lines {
+		// Truncate before padding. bubbles/list renders two columns wider
+		// once its filter prompt is up than the size it was given, and a
+		// line longer than the budget used to shove the right-hand frame
+		// out with it, so the border stepped sideways mid-card. ansi.Truncate
+		// counts display cells and leaves escape sequences intact, which a
+		// rune-slice cut would not.
+		l = ansi.Truncate(l, width, "")
 		visible := lipgloss.Width(l)
 		pad := width - visible
 		if pad < 0 {
@@ -980,6 +1009,7 @@ func newModel(dir string) model {
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(true) // kept: this is what reports filter state
 	l.SetStatusBarItemName(txtStatusItemName())
+	l.FilterInput.Prompt = txtFilterPrompt()
 	// The screen already has its own footer; the list's built-in help line
 	// would repeat the same keys a second time inside the pane.
 	l.SetShowHelp(false)
@@ -1349,6 +1379,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// items have to be rebuilt for the change to show.
 				m = m.refreshEntries()
 				m.list.SetStatusBarItemName(txtStatusItemName())
+				m.list.FilterInput.Prompt = txtFilterPrompt()
 				m.lastPreviewKey = ""
 				m.updatePreviewForSelection()
 				m.status = ""
@@ -1571,7 +1602,7 @@ func (m model) View() string {
 // version is stamped by hand at release time and must match the tag the
 // Homebrew formula points at. Reported by `ghostty-tui --version` so a bug
 // report can say which build it came from.
-const version = "0.1.1"
+const version = "0.1.2"
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {

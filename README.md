@@ -99,7 +99,7 @@ Everything imported — and every config you create — lives in
 | Key | Action |
 |-----|--------|
 | `↑`/`↓` | Move; the right pane previews as you go |
-| `/` | Fuzzy search over name, source, tag and description |
+| `/` | Fuzzy search over name, source, tag and description, indexed in both languages |
 | `enter` | Apply the selected item |
 | `s` | Save the current combination as a custom preset |
 | `n` | Create a new config and open the settings editor |
@@ -268,7 +268,7 @@ Ghostty Config Studio — 素材匯入
 | 按鍵 | 動作 |
 |------|------|
 | `↑`/`↓` | 移動，右側即時預覽 |
-| `/` | 模糊搜尋，比對名稱、來源、分類標籤與描述（例如 `/retro`） |
+| `/` | 模糊搜尋，比對名稱、來源、分類標籤與描述，中英文都可以（例如 `/游標`、`/cursor`） |
 | `enter` | 套用選中的項目 |
 | `s` | 把目前套用的組合存成自訂 preset |
 | `n` | 新建一個自訂設定檔，進入設定編輯器 |
