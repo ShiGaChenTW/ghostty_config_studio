@@ -11,3 +11,8 @@
 # Local working notes and agent scratch space — workflow, not product.
 /plans/
 /.claude/
+
+# Stray `go build` output left inside tui/ — the real target is /ghostty-tui,
+# built with `cd tui && go build -o ../ghostty-tui .`
+/tui/tui
+/tui/ghosttytui
