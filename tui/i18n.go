@@ -89,15 +89,16 @@ var categoryZH = map[string]string{
 }
 
 var styleTagZH = map[string]string{
-	"nature":    "自然",
-	"calm":      "沉靜",
-	"animated":  "動態",
-	"retro":     "復古",
-	"vibrant":   "鮮豔",
-	"cyberpunk": "賽博龐克",
-	"dark":      "暗色",
-	"light":     "亮色",
-	"minimal":   "極簡",
+	"nature":       "自然",
+	"calm":         "沉靜",
+	"animated":     "動態",
+	"retro":        "復古",
+	"vibrant":      "鮮豔",
+	"cyberpunk":    "賽博龐克",
+	"dark":         "暗色",
+	"light":        "亮色",
+	"minimal":      "極簡",
+	"professional": "專業",
 }
 
 // categoryTag is the bracketed label at the head of a row's description.
@@ -136,6 +137,33 @@ func searchAliases(cat string, tags []string) string {
 }
 
 func txtBuiltinTheme() string { return tr("Ghostty 內建主題", "Ghostty built-in theme") }
+
+// --- Tag filter ---------------------------------------------------------
+
+func txtTagTitle() string { return tr("依標籤篩選", "Filter by tag") }
+func txtTagBody() string {
+	return tr("勾選多個標籤時取交集。可以和 [/] 搜尋疊加使用。",
+		"Selecting several tags narrows to their intersection. Stacks with [/] search.")
+}
+func txtTagVibe() string { return tr("氛圍（人工標註）", "Character (hand-tagged)") }
+func txtTagTone() string {
+	return tr("明暗（由背景亮度推得）", "Tone (derived from background luminance)")
+}
+func txtTagFooter() string {
+	return tr("[↑/↓] 移動  [空白] 勾選  [c] 全部清除  [enter] 套用  [esc] 取消",
+		"[↑/↓] move  [space] toggle  [c] clear all  [enter] apply  [esc] cancel")
+}
+func txtTagNone() string { return tr("（沒有符合的項目）", "(nothing matches)") }
+func txtEmptyByTags() string {
+	return tr("沒有項目同時符合這些標籤。\n按 [t] 調整或清除。",
+		"No entry carries all of these tags.\nPress [t] to adjust or clear.")
+}
+func txtTagActive(list string, n int) string {
+	if lang == langEN {
+		return "tags: " + list + "  (" + plural(n, "match", "matches") + ")"
+	}
+	return "標籤：" + list + "（" + itoa(n) + " 筆）"
+}
 
 // --- UI strings ------------------------------------------------------------
 
@@ -194,8 +222,8 @@ func txtDefaultValue() string { return tr("預設值：", "Default:") }
 
 func txtBrowserFooter() string {
 	return tr(
-		"[↑/↓] 移動  [/] 搜尋  [enter] 套用  [s] 存目前組合  [n] 新設定檔  [e] 編輯設定  [L] English  [q] 離開",
-		"[↑/↓] move  [/] search  [enter] apply  [s] save current  [n] new config  [e] edit  [L] 中文  [q] quit")
+		"[↑/↓] 移動  [/] 搜尋  [t] 標籤  [enter] 套用  [s] 存目前組合  [n] 新設定檔  [e] 編輯設定  [L] English  [q] 離開",
+		"[↑/↓] move  [/] search  [t] tags  [enter] apply  [s] save current  [n] new config  [e] edit  [L] 中文  [q] quit")
 }
 
 func txtEditorFooter() string {

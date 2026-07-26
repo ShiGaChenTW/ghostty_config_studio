@@ -113,6 +113,7 @@ Everything imported — and every config you create — lives in
 |-----|--------|
 | `↑`/`↓` | Move; the right pane previews as you go |
 | `/` | Fuzzy search over name, source, tag and description, indexed in both languages |
+| `t` | Filter by tag: pick several to intersect them, stacks with `/` |
 | `enter` | Apply the selected item |
 | `s` | Save the current combination as a custom preset |
 | `n` | Create a new config and open the settings editor |
@@ -299,6 +300,7 @@ font-size = 13
 |------|------|
 | `↑`/`↓` | 移動，右側即時預覽 |
 | `/` | 模糊搜尋，比對名稱、來源、分類標籤與描述，中英文都可以（例如 `/游標`、`/cursor`） |
+| `t` | 依標籤篩選：可複選取交集，也能和 `/` 疊加 |
 | `enter` | 套用選中的項目 |
 | `s` | 把目前套用的組合存成自訂 preset |
 | `n` | 新建一個自訂設定檔，進入設定編輯器 |

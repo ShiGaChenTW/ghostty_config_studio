@@ -173,6 +173,21 @@ var curatedTags = map[string][]string{
 // Relative luminance (perceived-brightness weighted, not a straight
 // average) against a mid-point threshold; good enough for a binary split,
 // not trying to be a color-science library.
+// tagsFor combines an entry's hand-assigned character tags with the tone
+// derived from its own background. Tone used to be computed only for the
+// built-in themes, which made the two groups in the tag panel mutually
+// exclusive: every "retro AND dark" combination came back empty because no
+// curated entry carried a tone at all. Copies the curated slice rather than
+// appending to it, or the shared backing array leaks tone tags between
+// entries that happen to sit next to each other in the map.
+func tagsFor(name, previewPath string) []string {
+	curated := curatedTags[name]
+	out := make([]string, 0, len(curated)+1)
+	out = append(out, curated...)
+	out = append(out, autoTagsFor(previewPath)...)
+	return out
+}
+
 func autoTagsFor(previewPath string) []string {
 	cs := parseColorSet(previewPath, 0)
 	if !cs.hasColor() {
@@ -521,8 +536,11 @@ func renderColorPreview(width int, cs colorSet) string {
 // tmux testing) mis-measured already-styled short strings. Pre-padding
 // plain unstyled labels ourselves, then styling the whole fixed-width
 // result, sidesteps that wrap engine entirely.
+// padRight pads to w DISPLAY columns, not runes. A CJK glyph occupies two
+// cells, so counting runes left every Chinese label short by its own length
+// and the column after it ragged.
 func padRight(s string, w int) string {
-	n := len([]rune(s))
+	n := lipgloss.Width(s)
 	if n >= w {
 		return s
 	}
@@ -555,7 +573,7 @@ func buildEntries(dir string) []entry {
 		}
 		items = append(items, entry{
 			source: "snedea", name: name, desc: desc, category: "theme",
-			kind: "file", value: f, shaderSrc: shaderSrc, previewPath: f, tags: curatedTags[name],
+			kind: "file", value: f, shaderSrc: shaderSrc, previewPath: f, tags: tagsFor(name, f),
 		})
 	}
 
@@ -569,7 +587,7 @@ func buildEntries(dir string) []entry {
 		}
 		items = append(items, entry{
 			source: "naydenoff", name: name, desc: desc, category: "theme",
-			kind: "file", value: f, previewPath: f, tags: curatedTags[name],
+			kind: "file", value: f, previewPath: f, tags: tagsFor(name, f),
 		})
 	}
 
@@ -583,7 +601,7 @@ func buildEntries(dir string) []entry {
 		}
 		items = append(items, entry{
 			source: "naydenoff", name: name, desc: desc, category: "font",
-			kind: "file", value: f, previewPath: f, tags: curatedTags[name],
+			kind: "file", value: f, previewPath: f, tags: tagsFor(name, f),
 		})
 	}
 
@@ -612,7 +630,7 @@ func buildEntries(dir string) []entry {
 		}
 		items = append(items, entry{
 			source: "naydenoff", name: name, desc: desc, category: "preset",
-			kind: "file", value: f, previewPath: f, tags: curatedTags[name],
+			kind: "file", value: f, previewPath: f, tags: tagsFor(name, f),
 		})
 	}
 
@@ -630,7 +648,7 @@ func buildEntries(dir string) []entry {
 		}
 		items = append(items, entry{
 			source: "sahaj-b", name: name, desc: desc, category: "cursor",
-			kind: "shader", value: f, previewPath: f, tags: curatedTags[name],
+			kind: "shader", value: f, previewPath: f, tags: tagsFor(name, f),
 		})
 	}
 
@@ -994,6 +1012,14 @@ type model struct {
 	lastPreviewKey    string // identity of the entry last rendered into preview
 	showRestartPrompt bool
 
+	// Tag filtering, opened with `t`. allEntries is the unfiltered catalog;
+	// the list itself only ever holds what the active tags leave, so
+	// bubbles/list's own `/` search composes on top rather than competing.
+	allEntries   []entry
+	activeTags   map[string]bool
+	showTagPanel bool
+	tagCursor    int
+
 	// Name-prompt dialog — shared by two purposes (namePurpose tells
 	// Enter's handler which): "save-current" snapshots the active managed
 	// block (existing `s` behavior); "new-file" creates a blank custom
@@ -1058,10 +1084,12 @@ func newModel(dir string) model {
 	ti.Width = 40
 
 	return model{
-		dir:       dir,
-		list:      l,
-		current:   currentSelections(dir),
-		nameInput: ti,
+		dir:        dir,
+		list:       l,
+		allEntries: entries,
+		current:    currentSelections(dir),
+		nameInput:  ti,
+		activeTags: map[string]bool{},
 	}
 }
 
@@ -1134,7 +1162,14 @@ func (m model) selectionKey() string {
 // directory) and replaces the list's items — used after any change that
 // could add/remove a custom preset, so it shows up without restarting.
 func (m model) refreshEntries() model {
-	entries := applyRecentOrdering(buildEntries(m.dir), loadRecentKeys())
+	m.allEntries = applyRecentOrdering(buildEntries(m.dir), loadRecentKeys())
+	return m.applyTagFilter()
+}
+
+// applyTagFilter narrows the list to the active tags. Kept separate from
+// refreshEntries because toggling a tag must not re-scan the disk.
+func (m model) applyTagFilter() model {
+	entries := filterByTags(m.allEntries, m.activeTags)
 	items := make([]list.Item, len(entries))
 	for i, e := range entries {
 		items[i] = e
@@ -1347,6 +1382,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.editor != nil {
 			return m.updateEditor(msg)
 		}
+		if m.showTagPanel {
+			// Same modal focus trap as the other overlays: while the panel
+			// is open the list underneath receives nothing, so "q" closes
+			// the panel instead of quitting the program.
+			rows := tagRows()
+			switch strings.ToLower(msg.String()) {
+			case "esc", "q", "ctrl+c", "enter", "t":
+				m.showTagPanel = false
+			case "up", "k":
+				if m.tagCursor > 0 {
+					m.tagCursor--
+				}
+			case "down", "j":
+				if m.tagCursor < len(rows)-1 {
+					m.tagCursor++
+				}
+			case " ", "space", "x":
+				t := rows[m.tagCursor]
+				if m.activeTags[t] {
+					delete(m.activeTags, t)
+				} else {
+					m.activeTags[t] = true
+				}
+				m = m.applyTagFilter()
+				m.lastPreviewKey = ""
+				m.updatePreviewForSelection()
+			case "c":
+				m.activeTags = map[string]bool{}
+				m = m.applyTagFilter()
+				m.lastPreviewKey = ""
+				m.updatePreviewForSelection()
+			}
+			return m, nil
+		}
 		if m.showDeleteConfirm {
 			switch strings.ToLower(msg.String()) {
 			case "y":
@@ -1405,6 +1474,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case key.Matches(msg, key.NewBinding(key.WithKeys("q", "ctrl+c"))):
 				return m, tea.Quit
+			case key.Matches(msg, key.NewBinding(key.WithKeys("t"))):
+				m.showTagPanel = true
+				return m, nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("L"))):
 				// Uppercase L: lowercase l is vim-style "right" in the
 				// editor, so the shifted key keeps both free.
@@ -1531,6 +1603,9 @@ func (m model) View() string {
 			statusStyle.Render(txtRestartYes()) + "   " + errorStyle.Render(txtRestartNo())
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, msg)
 	}
+	if m.showTagPanel {
+		return m.tagPanel()
+	}
 	if m.showDeleteConfirm {
 		t := m.deleteTarget
 		var v []string
@@ -1590,7 +1665,28 @@ func (m model) View() string {
 
 	// Left pane gets the same "name your own function on row one" treatment
 	// as the editor's panes.
-	listView := labelStyle.Render(txtPaneList()) + "\n" + m.list.View()
+	// Name the active tags in the pane header. A filter you cannot see is a
+	// filter you will blame the catalog for.
+	paneTitle := labelStyle.Render(txtPaneList())
+	if lbl := activeTagLabel(m.activeTags); lbl != "" {
+		paneTitle += "  " + statusStyle.Render("["+lbl+"]")
+	}
+	// bubbles/list writes its own "No items" line, which comes out as
+	// "No 個項目" once the item name is Chinese. An empty result is a normal
+	// outcome of intersecting tags, so it gets a sentence that says what to
+	// do about it instead.
+	listBody := m.list.View()
+	if len(m.list.Items()) == 0 && len(m.activeTags) > 0 {
+		// Pad back to the height the list would have taken. The card height
+		// is measured from this string, so a two-line message would collapse
+		// both panes to a stub.
+		empty := []string{"", helpStyle.Render(txtEmptyByTags())}
+		for len(empty) < m.bodyHeight {
+			empty = append(empty, "")
+		}
+		listBody = strings.Join(empty, "\n")
+	}
+	listView := paneTitle + "\n" + listBody
 	// list.Model's SetSize(width, height) budgets height for the item area
 	// only — its title/status/pagination/help chrome is added on top, so
 	// the actual listView is taller than m.bodyHeight. Measure it directly
@@ -1651,7 +1747,7 @@ func (m model) View() string {
 // version is stamped by hand at release time and must match the tag the
 // Homebrew formula points at. Reported by `ghostty-tui --version` so a bug
 // report can say which build it came from.
-const version = "0.1.7"
+const version = "0.1.8"
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
