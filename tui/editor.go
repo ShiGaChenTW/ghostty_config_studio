@@ -76,6 +76,19 @@ func rowsFor(cat string) []keyInfo {
 	return out
 }
 
+// tabCount is the "(3/27)" a tab carries: how many of that page's settings
+// are ticked, out of how many it has. Without it the only way to find where
+// your changes are is to walk all fourteen pages.
+func (e *editorState) tabCount(cat string) (checked, total int) {
+	rows := rowsFor(cat)
+	for _, k := range rows {
+		if _, ok := e.checked[k.key]; ok {
+			checked++
+		}
+	}
+	return checked, len(rows)
+}
+
 func (e *editorState) curCat() string     { return categoryOrder[e.catIndex] }
 func (e *editorState) curRows() []keyInfo { return rowsFor(e.curCat()) }
 
@@ -433,7 +446,9 @@ func (e *editorState) renderTabs(width int) []string {
 		if i == e.catIndex {
 			style = tabActiveStyle
 		}
-		tab := style.Render(" "+categoryLabel(c)+" ") + tabShadowStyle.Render(" ")
+		checked, total := e.tabCount(c)
+		label := categoryLabel(c) + " (" + itoa(checked) + "/" + itoa(total) + ")"
+		tab := style.Render(" "+label+" ") + tabShadowStyle.Render(" ")
 		tw := lipgloss.Width(tab)
 		if lineW > 0 && lineW+1+tw > width {
 			rows = append(rows, line, "") // blank spacer between tab rows
