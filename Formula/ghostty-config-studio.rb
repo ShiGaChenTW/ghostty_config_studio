@@ -58,12 +58,13 @@ class GhosttyConfigStudio < Formula
     ENV["GHOSTTY_DIR"] = testpath/"ghostty"
     ENV["GHOSTTY_STUDIO_DIR"] = testpath/"studio"
 
-    assert_match "No ghostty-picker selections", shell_output("#{bin}/ghostty-theme --current")
+    # Assertions match the strings that are identical in both languages, so
+    # the test does not quietly depend on which one happens to be default.
+    assert_match "ghostty-picker", shell_output("#{bin}/ghostty-theme --current")
 
     # No packs imported: the picker must decline cleanly, not crash.
-    output = shell_output("#{bin}/ghostty-theme 2>&1", 1)
-    assert_match "ghostty-setup", output
+    assert_match "ghostty-setup", shell_output("#{bin}/ghostty-theme 2>&1", 1)
 
-    assert_predicate libexec/"ghostty-tui", :executable?
+    assert_match version.to_s, shell_output("#{bin}/ghostty-tui --version")
   end
 end
