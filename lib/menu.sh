@@ -158,7 +158,7 @@ clear_categories_under() {
       inb && c != "" && index($0, p) { print c; c="" }
     ' "$GHOSTTY_CONFIG"); do
     clear_category "$cat"
-    t "  （已從 Ghostty 設定移除仍在套用的 $cat）" \
+    t "  （已從 Ghostty 設定移除仍在套用的 ${cat}）" \
       "  (removed the still-applied $cat from your Ghostty config)"
   done
 }
@@ -274,7 +274,7 @@ warn_if_shadowed() {
     [ -n "$hits" ] || continue
     echo >&2
     t "⚠  這些設定不會生效：$hits" "⚠  These settings will not take effect:$hits" >&2
-    t "   Ghostty 也會讀 $other，而且是在 ~/.config/ghostty/config 之後讀，" \
+    t "   Ghostty 也會讀 ${other}，而且是在 ~/.config/ghostty/config 之後讀，" \
       "   Ghostty also reads $other, and reads it AFTER ~/.config/ghostty/config," >&2
     t "   所以那裡設的同名項目會蓋過這裡的選擇。把那幾行從該檔案移除或註解掉就會生效。" \
       "   so the keys it sets win. Remove or comment those lines there to let this selection through." >&2
@@ -299,7 +299,8 @@ apply_selection() {
   else
     set_path_for "$category" "$value" "$kind" "$key"
   fi
-  warn_if_shadowed "$value" "$kind" "$key"
+  # Advisory only: never let it turn a successful write into a failure.
+  warn_if_shadowed "$value" "$kind" "$key" || true
 }
 
 # save_current_as DEST — snapshot whatever's currently active (across every
@@ -364,7 +365,7 @@ run_picker() {
     local kind="${kinds[$idx]:-file}"
     local cat; cat="$(_cat_for "$idx")"
     apply_selection "$cat" "${paths[$idx]}" "$kind" "${shader_srcs[$idx]:-}" "${keys[$idx]:-}"
-    t "已切換 $cat：${names[$idx]} -- ${descs[$idx]}" \
+    t "已切換 ${cat}：${names[$idx]} -- ${descs[$idx]}" \
       "Switched $cat to: ${names[$idx]} -- ${descs[$idx]}"
   }
 
@@ -373,7 +374,7 @@ run_picker() {
     for i in "${!names[@]}"; do
       if [ "${names[$i]}" = "$direct" ]; then _apply_choice "$i"; return 0; fi
     done
-    t "找不到 $category：$direct" "Unknown $category: $direct" >&2
+    t "找不到 ${category}：$direct" "Unknown $category: $direct" >&2
     t "可用的有：${names[*]}" "Available: ${names[*]}" >&2
     return 1
   fi

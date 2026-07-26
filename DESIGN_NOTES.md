@@ -167,6 +167,15 @@ binary would survive either way; it calls `filepath.EvalSymlinks`.)
 
 ## Portability
 
+**bash 3.2 in a UTF-8 locale eats the first byte of a multibyte character
+into an unbraced variable name.** `echo "reads $other，then"` fails with
+`other<ef>: unbound variable`, while the identical line with `LANG` unset runs
+fine, which is exactly the environment a test harness tends to have. Every
+user-facing string here is bilingual, so `$var` sitting right before a
+full-width comma or colon is easy to write and impossible to notice. Brace it.
+`scripts/check.sh` greps for the pattern and runs the commands under
+`en_US.UTF-8` so the trap cannot come back.
+
 **macOS ships bash 3.2.** No `declare -A`, no `${var^}`. Everything here runs
 on the stock shell so no Homebrew bash is required.
 
