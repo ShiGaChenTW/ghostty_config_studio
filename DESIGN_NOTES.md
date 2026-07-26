@@ -1,0 +1,106 @@
+# Design Notes
+
+Decisions and hard-won details behind this project, kept for anyone reading or
+extending the code. These are the things that are not obvious from the source,
+and several of them were only discovered by getting them wrong first.
+
+## Config writing
+
+**Ghostty's own `config-file` include is the composition mechanism.** No
+merging or concatenating of config text — the tool only writes which file to
+include. Selections stay independent, and the underlying assets are never
+copied or rewritten.
+
+**Everything lives inside marker comments.** Content outside
+`# >>> ghostty-picker managed >>>` … `# <<< ghostty-picker managed <<<` is
+never touched, so an existing hand-written config survives intact.
+
+**`config-file` takes the rest of the line, literally.** An inline trailing
+comment does not work:
+
+```
+config-file = /path/to/theme.conf  # category:theme   ← BROKEN
+```
+
+Ghostty tries to open a path that includes the comment text, fails with
+`error.FileNotFound`, and then falls back to defaults for the *entire* config.
+Category tags therefore live on their own comment line above the directive.
+
+**A dangling include breaks everything, silently.** Deleting a config file that
+is still referenced produces the same whole-config fallback. That's why
+deletion clears the managed-block reference first.
+
+**Verify with `+validate-config`, not `+show-config`.** `ghostty +show-config`
+prints the resolved config and exits clean even when an include is missing —
+it will not tell you the config is broken. `ghostty +validate-config` reports
+`error opening config-file …: error.FileNotFound`. Use the latter.
+
+**An empty value is worse than an error.** Writing `key = ` parses fine and is
+then silently ignored by Ghostty, so the UI would show a setting as active
+while it does nothing. The editor treats an empty input as "not set".
+
+## Rendering
+
+**Never nest already-styled multi-line content inside another
+`lipgloss.Style{}` that measures it.** `.Width()` / `.Height()` mis-measure
+ANSI-styled input in some terminal environments — observed as both mid-line
+truncation and phantom extra rows (a `Height(31)` render producing 38 lines).
+Boxes here are hand-drawn, using the ANSI-aware `lipgloss.Width()` for padding.
+
+**Measure display width, not byte or rune length.** CJK cells are double-width.
+`len()` will silently misalign every layout that contains Chinese text.
+
+**Colored fills need every segment styled.** A styled fragment ends with a
+reset, so concatenating `styledA + "   " + styledB` and wrapping the result in
+one outer `Render` leaves the middle spaces unstyled — it showed up as a dark
+bar cutting through the title band. Each segment carries its own background.
+
+**Foreground block glyphs beat background fills for swatches.** An early color
+preview painted a background-filled text panel and truncated unpredictably.
+Drawing `█` in the foreground color has been completely stable.
+
+**bubbles/list filters asynchronously.** The keystroke returns a `Cmd`, and the
+resulting `FilterMatchesMsg` arrives as a plain `tea.Msg`. Routing all non-key
+messages to a single list means any other list's filter silently never applies.
+
+**`list.SetSize(w, h)` budgets the item area only.** Title, status, pagination
+and help chrome are added on top, so the rendered height exceeds `h`. Measure
+the rendered output if you need panes to match.
+
+## Catalog
+
+`tui/keycatalog.go` is generated-assisted: key names, defaults and enumerated
+legal values come from parsing `ghostty +show-config --default=true
+--docs=true` on a real install, rather than being transcribed by hand. The
+Traditional Chinese names, descriptions and category assignments are written by
+hand. Regenerate against a newer Ghostty by re-parsing that same command.
+
+A newer Ghostty may have keys this catalog lacks. Two consequences are handled:
+the editor keeps a manual-key escape hatch, and saving preserves any key
+already in the file that the catalog doesn't recognise rather than dropping it.
+
+Two upstream data bugs are worked around at the description layer only, leaving
+the vendored files byte-identical: in `snedea/ghostty-themes`,
+`config.cyberpunk` duplicates `config.matrix` and `config.neon` duplicates
+`config.pico`, comments and colors alike. The menu shows each its correct
+description, but the 18 theme entries yield 16 visually distinct results.
+
+## Portability
+
+**macOS ships bash 3.2.** No `declare -A`, no `${var^}`. Everything here runs
+on the stock shell so no Homebrew bash is required.
+
+**One implementation of the config write.** The TUI shells out to
+`lib/menu.sh`'s `apply_selection` instead of reimplementing managed-block
+handling in Go, so the CLI and the TUI cannot drift.
+
+## Known limitation
+
+The 12 shader themes bake in their own `background-opacity`, `background-blur`,
+`cursor-style` and `cursor-style-blink` as part of their visual ambiance.
+Combining one with an independent choice for the same key gives inconsistent
+precedence — in testing, `cursor-style` respected the explicit choice while
+`background-opacity`, `background-blur` and `cursor-style-blink` did not. The
+exact rule in Ghostty's include precedence has not been pinned down. These
+settings behave predictably on their own and alongside color themes, built-in
+themes and presets.

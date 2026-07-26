@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Interactive picker over naydenoff/ghostty-config's 4 font configs.
+#
+#   ghostty-font              interactive numbered menu
+#   ghostty-font <name>       switch directly, e.g. `ghostty-font iosevka`
+#   ghostty-font --current    show every category's active selection
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/menu.sh
+source "$SCRIPT_DIR/lib/menu.sh"
+
+if [ "${1:-}" = "--current" ]; then show_current; exit 0; fi
+
+names=(); descs=(); paths=(); shader_srcs=(); kinds=(); sources=()
+
+font_desc() {
+  case "$1" in
+    cascadia-code)  echo "Cascadia Code -- Microsoft's modern font, excellent cursive italics" ;;
+    fira-code)      echo "Fira Code -- beautiful coding ligatures, clean and programming-focused" ;;
+    iosevka)        echo "Iosevka -- ultra-narrow, space-efficient, maximizes code density" ;;
+    jetbrains-mono) echo "JetBrains Mono -- excellent readability, built-in ligatures" ;;
+    *)              echo "$1" ;;
+  esac
+}
+
+for f in "$SCRIPT_DIR"/assets/fonts/*.conf; do
+  [ -f "$f" ] || continue
+  name="$(basename "$f" .conf)"
+  names+=("$name"); descs+=("$(font_desc "$name")"); paths+=("$f"); shader_srcs+=(""); sources+=("naydenoff")
+done
+
+run_picker font Font "${1:-}"

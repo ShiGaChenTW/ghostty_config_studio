@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Interactive picker over sahaj-b/ghostty-cursor-shaders' 7 cursor-effect
+# GLSL shaders (trails + pulse/boom effects). Distinct from ghostty-theme's
+# background shaders: these apply via a direct `custom-shader = <path>`
+# line (kind=shader), not a config-file include, and stack independently
+# alongside a background theme (Ghostty supports multiple custom-shader
+# directives at once).
+#
+#   ghostty-cursor              interactive numbered menu
+#   ghostty-cursor <name>       switch directly, e.g. `ghostty-cursor cursor_tail`
+#   ghostty-cursor --current    show every category's active selection
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/menu.sh
+source "$SCRIPT_DIR/lib/menu.sh"
+
+if [ "${1:-}" = "--current" ]; then show_current; exit 0; fi
+
+names=(); descs=(); paths=(); shader_srcs=(); kinds=(); sources=()
+
+cursor_desc() {
+  case "$1" in
+    cursor_tail)            echo "Cursor Tail -- comet-like trail, Kitty-style" ;;
+    cursor_sweep)           echo "Cursor Sweep -- animated shrinking trail" ;;
+    cursor_warp)            echo "Cursor Warp -- Neovide-like warp animation" ;;
+    sonic_boom_cursor)      echo "Sonic Boom -- expanding filled circle on cursor move" ;;
+    ripple_cursor)          echo "Ripple -- circular ring ripple on cursor move" ;;
+    rectangle_boom_cursor)  echo "Rectangle Boom -- rectangular boom variant" ;;
+    ripple_rectangle_cursor) echo "Rectangle Ripple -- rectangular ripple variant" ;;
+    *)                      echo "$1" ;;
+  esac
+}
+
+for f in "$SCRIPT_DIR"/assets/cursor-shaders/*.glsl; do
+  [ -f "$f" ] || continue
+  name="$(basename "$f" .glsl)"
+  names+=("$name"); descs+=("$(cursor_desc "$name")"); paths+=("$f")
+  shader_srcs+=(""); kinds+=("shader"); sources+=("sahaj-b")
+done
+
+run_picker cursor Cursor "${1:-}"

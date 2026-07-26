@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# Interactive importer for the optional config packs.
+#
+# None of these are bundled with this repo — the workbench works perfectly
+# well with nothing imported, in which case it only lists the configs you
+# create yourself. Import whichever packs you want, individually, and
+# remove them again at any time.
+#
+# Everything imported here is MIT-licensed upstream; each pack's LICENSE is
+# copied in alongside its files.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ASSETS="$SCRIPT_DIR/assets"
+# shellcheck source=lib/menu.sh
+source "$SCRIPT_DIR/lib/menu.sh"
+
+# name|repo|description|target subdir
+PACKS=(
+  "snedea|https://github.com/snedea/ghostty-themes|12 個帶 GLSL shader 的視覺主題|shader-themes"
+  "naydenoff|https://github.com/naydenoff/ghostty-config|6 個色彩主題 + 4 個字型 + 5 個完整 preset|naydenoff"
+  "sahaj-b|https://github.com/sahaj-b/ghostty-cursor-shaders|7 個游標特效 shader|cursor-shaders"
+)
+
+pack_field() { echo "$1" | cut -d'|' -f"$2"; }
+
+# A pack counts as imported when its marker directory has real content.
+is_installed() {
+  case "$1" in
+    snedea)    [ -n "$(ls "$ASSETS"/shader-themes/config.* 2>/dev/null)" ] ;;
+    naydenoff) [ -n "$(ls "$ASSETS"/color-themes/*.conf 2>/dev/null)" ] ;;
+    sahaj-b)   [ -n "$(ls "$ASSETS"/cursor-shaders/*.glsl 2>/dev/null)" ] ;;
+  esac
+}
+
+import_pack() {
+  local name="$1" repo="$2"
+  local tmp
+  tmp="$(mktemp -d)"
+  echo "→ 下載 $repo ..."
+  if ! git clone --depth 1 --quiet "$repo" "$tmp/src" 2>/dev/null; then
+    echo "  下載失敗，請確認網路連線或該 repo 是否仍存在。" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  case "$name" in
+    snedea)
+      mkdir -p "$ASSETS/shader-themes/shaders"
+      cp "$tmp"/src/config.* "$ASSETS/shader-themes/"
+      cp "$tmp"/src/shaders/*.glsl "$ASSETS/shader-themes/shaders/"
+      cp "$tmp/src/LICENSE" "$ASSETS/shader-themes/LICENSE-snedea"
+      ;;
+    naydenoff)
+      mkdir -p "$ASSETS/color-themes" "$ASSETS/fonts" "$ASSETS/presets"
+      cp "$tmp"/src/themes/*.conf "$ASSETS/color-themes/"
+      cp "$tmp"/src/fonts/*.conf "$ASSETS/fonts/"
+      cp "$tmp"/src/presets/*.conf "$ASSETS/presets/"
+      cp "$tmp/src/LICENSE" "$ASSETS/color-themes/LICENSE-naydenoff"
+      ;;
+    sahaj-b)
+      mkdir -p "$ASSETS/cursor-shaders"
+      cp "$tmp"/src/*.glsl "$ASSETS/cursor-shaders/"
+      cp "$tmp/src/LICENSE" "$ASSETS/cursor-shaders/LICENSE-sahaj-b"
+      ;;
+  esac
+  rm -rf "$tmp"
+  echo "  完成。"
+}
+
+remove_pack() {
+  local dirs=()
+  case "$1" in
+    snedea)    dirs=("$ASSETS/shader-themes") ;;
+    naydenoff) dirs=("$ASSETS/color-themes" "$ASSETS/fonts" "$ASSETS/presets") ;;
+    sahaj-b)   dirs=("$ASSETS/cursor-shaders") ;;
+  esac
+  # Drop any live reference first — deleting a file that's still included
+  # from the user's config makes Ghostty fail to open it and fall back to
+  # defaults for their entire config.
+  local d
+  for d in "${dirs[@]}"; do clear_categories_under "$d"; done
+  rm -rf "${dirs[@]}"
+  echo "已移除 $1 的素材。"
+}
+
+show_menu() {
+  echo
+  echo "Ghostty Config Studio — 素材匯入"
+  echo "════════════════════════════════"
+  echo "這些設定檔集都是選用的。完全不匯入也能用——工作台會只顯示你自己建立的設定檔。"
+  echo
+  local i=1 p name desc
+  for p in "${PACKS[@]}"; do
+    name="$(pack_field "$p" 1)"; desc="$(pack_field "$p" 3)"
+    if is_installed "$name"; then
+      printf "  %d) [已匯入] %-11s %s\n" "$i" "$name" "$desc"
+    else
+      printf "  %d) [  --  ] %-11s %s\n" "$i" "$name" "$desc"
+    fi
+    i=$((i + 1))
+  done
+  echo
+  echo "  a) 全部匯入"
+  echo "  r) 移除全部素材（回到空白工作台）"
+  echo "  q) 離開"
+  echo
+}
+
+while true; do
+  show_menu
+  printf "選擇 [1-%d/a/r/q]: " "${#PACKS[@]}"
+  read -r choice || exit 0
+  case "$choice" in
+    q|Q|"") echo "離開。"; exit 0 ;;
+    a|A)
+      for p in "${PACKS[@]}"; do
+        import_pack "$(pack_field "$p" 1)" "$(pack_field "$p" 2)" || true
+      done
+      ;;
+    r|R)
+      for p in "${PACKS[@]}"; do remove_pack "$(pack_field "$p" 1)"; done
+      ;;
+    [0-9]*)
+      if [ "$choice" -ge 1 ] && [ "$choice" -le "${#PACKS[@]}" ] 2>/dev/null; then
+        p="${PACKS[$((choice - 1))]}"
+        name="$(pack_field "$p" 1)"
+        if is_installed "$name"; then
+          printf "%s 已匯入。要移除嗎？[y/N]: " "$name"
+          read -r yn
+          case "$yn" in y|Y) remove_pack "$name" ;; *) echo "維持不變。" ;; esac
+        else
+          import_pack "$name" "$(pack_field "$p" 2)" || true
+        fi
+      else
+        echo "無效的選擇。"
+      fi
+      ;;
+    *) echo "無效的選擇。" ;;
+  esac
+done

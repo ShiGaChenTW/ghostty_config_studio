@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Window appearance settings — background-opacity and background-blur.
+# Phase 1 of the settings editor: curated
+# value-picker categories using the existing lib/menu.sh mechanism, not a
+# free-form editor (that's a separate, larger piece of work). Deliberately
+# does NOT cover window-padding-x/y — those need two directive lines
+# written from one selection, which needs a small special case not built
+# yet; flagged rather than silently included as "done."
+#
+#   ghostty-window              interactive numbered menu (opacity + blur)
+#   ghostty-window opacity-90   direct name, e.g. `ghostty-window blur-medium`
+#   ghostty-window --current    show every category's active selection
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/menu.sh
+source "$SCRIPT_DIR/lib/menu.sh"
+
+if [ "${1:-}" = "--current" ]; then show_current; exit 0; fi
+
+names=(); descs=(); paths=(); shader_srcs=(); kinds=(); sources=(); categories=(); keys=()
+
+add() {
+  names+=("$1"); descs+=("$2"); paths+=("$3"); shader_srcs+=("")
+  kinds+=("raw"); sources+=(""); categories+=("$4"); keys+=("$5")
+}
+
+add "opacity-100" "Opacity 100% -- fully opaque"        "1"    opacity background-opacity
+add "opacity-95"  "Opacity 95%"                          "0.95" opacity background-opacity
+add "opacity-90"  "Opacity 90%"                          "0.90" opacity background-opacity
+add "opacity-85"  "Opacity 85%"                          "0.85" opacity background-opacity
+add "opacity-80"  "Opacity 80% -- quite see-through"      "0.80" opacity background-opacity
+
+add "blur-off"    "Blur off"                              "false" blur background-blur
+add "blur-light"  "Blur light (intensity 10)"             "10"    blur background-blur
+add "blur-medium" "Blur medium (intensity 20, Ghostty default when on)" "20" blur background-blur
+add "blur-heavy"  "Blur heavy (intensity 40)"              "40"    blur background-blur
+
+run_picker window Window "${1:-}"

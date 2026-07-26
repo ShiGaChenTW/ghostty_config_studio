@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Interactive picker merging snedea/ghostty-themes' 12 GLSL shader themes with
+# naydenoff/ghostty-config's 6 color themes into one numbered menu.
+#
+#   ghostty-theme               interactive numbered menu (18 curated themes)
+#   ghostty-theme <name>        switch directly, e.g. `ghostty-theme sakura`
+#   ghostty-theme --current     show every category's active selection
+#   ghostty-theme --search KW   browse Ghostty's own 460+ built-in themes
+#                               matching KW (no vendoring — applied via
+#                               `theme = <name>`, Ghostty's native mechanism)
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/menu.sh
+source "$SCRIPT_DIR/lib/menu.sh"
+
+if [ "${1:-}" = "--current" ]; then show_current; exit 0; fi
+
+if [ "${1:-}" = "--search" ]; then
+  keyword="${2:-}"
+  if [ -z "$keyword" ]; then
+    echo "Usage: ghostty-theme --search <keyword>" >&2
+    exit 1
+  fi
+  if command -v ghostty >/dev/null 2>&1; then
+    ghostty_bin="ghostty"
+  elif [ -x "/Applications/Ghostty.app/Contents/MacOS/ghostty" ]; then
+    ghostty_bin="/Applications/Ghostty.app/Contents/MacOS/ghostty"
+  else
+    echo "Can't find the ghostty CLI binary (checked PATH and /Applications/Ghostty.app)." >&2
+    exit 1
+  fi
+
+  names=(); descs=(); paths=(); shader_srcs=(); kinds=(); sources=()
+  max_results=40
+  matched=0
+  while IFS= read -r line; do
+    theme_name="${line% (*}"
+    [ -n "$theme_name" ] || continue
+    matched=$((matched + 1))
+    [ "$matched" -gt "$max_results" ] && continue
+    names+=("$theme_name"); descs+=("Ghostty 內建主題"); paths+=("$theme_name")
+    shader_srcs+=(""); kinds+=("name"); sources+=("ghostty")
+  done < <("$ghostty_bin" +list-themes 2>/dev/null | grep -i -- "$keyword")
+
+  if [ "$matched" -eq 0 ]; then
+    echo "No built-in Ghostty themes match \"$keyword\"." >&2
+    exit 1
+  fi
+  if [ "$matched" -gt "$max_results" ]; then
+    echo "($matched matches for \"$keyword\", showing first $max_results — narrow your keyword for the rest)"
+  fi
+  run_picker theme Theme ""
+  exit 0
+fi
+
+names=(); descs=(); paths=(); shader_srcs=(); kinds=(); sources=()
+
+# Two shader-theme config files upstream (snedea) share a copy-pasted comment
+# line with a different theme (config.cyberpunk == config.matrix's comment,
+# config.neon == config.pico's) — an upstream data bug, not ours to silently
+# inherit. Override just those two with the descriptions from the repo README.
+shader_desc_override() {
+  case "$1" in
+    cyberpunk) echo "Cyberpunk -- neon synthwave with wandering bug behind the screen" ;;
+    neon)      echo "Neon -- VHS retro glow, neon distortion flicker" ;;
+    *)         echo "" ;;
+  esac
+}
+
+for f in "$SCRIPT_DIR"/assets/shader-themes/config.*; do
+  [ -f "$f" ] || continue
+  name="${f##*/config.}"
+  override="$(shader_desc_override "$name")"
+  if [ -n "$override" ]; then
+    desc="$override"
+  else
+    desc="$(grep -m1 '^# ' "$f" | sed 's/^# //')"
+  fi
+  shader_line="$(grep -m1 '^custom-shader' "$f" || true)"
+  shader_file="${shader_line##*/}"
+  names+=("$name"); descs+=("$desc"); paths+=("$f"); sources+=("snedea")
+  if [ -n "$shader_file" ]; then
+    shader_srcs+=("$SCRIPT_DIR/assets/shader-themes/shaders/$shader_file")
+  else
+    shader_srcs+=("")
+  fi
+done
+
+color_desc() {
+  case "$1" in
+    catppuccin-mocha) echo "Catppuccin Mocha -- modern & cozy, warm purples, soft pastels" ;;
+    dracula)          echo "Dracula -- classic gothic elegance, rich purples, blood red accents" ;;
+    gruvbox)          echo "Gruvbox -- retro warmth, warm browns, vintage yellows" ;;
+    nord)             echo "Nord -- arctic minimalism, cool blues, polar ice palette" ;;
+    tokyo-night)      echo "Tokyo Night -- cyberpunk vibes, deep blues, electric accents" ;;
+    warp-dark)        echo "Warp Dark -- matches Warp terminal's default dark theme" ;;
+    *)                echo "$1" ;;
+  esac
+}
+
+for f in "$SCRIPT_DIR"/assets/color-themes/*.conf; do
+  [ -f "$f" ] || continue
+  name="$(basename "$f" .conf)"
+  names+=("$name"); descs+=("$(color_desc "$name")"); paths+=("$f"); shader_srcs+=(""); sources+=("naydenoff")
+done
+
+run_picker theme Theme "${1:-}"

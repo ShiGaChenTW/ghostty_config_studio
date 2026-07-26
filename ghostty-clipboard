@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Clipboard behavior settings — copy-on-select and trim-trailing-spaces.
+#
+#   ghostty-clipboard              interactive numbered menu
+#   ghostty-clipboard select-off   direct name
+#   ghostty-clipboard --current    show every category's active selection
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/menu.sh
+source "$SCRIPT_DIR/lib/menu.sh"
+
+if [ "${1:-}" = "--current" ]; then show_current; exit 0; fi
+
+names=(); descs=(); paths=(); shader_srcs=(); kinds=(); sources=(); categories=(); keys=()
+
+add() {
+  names+=("$1"); descs+=("$2"); paths+=("$3"); shader_srcs+=("")
+  kinds+=("raw"); sources+=(""); categories+=("$4"); keys+=("$5")
+}
+
+add "select-on"  "Copy on select -- Ghostty default on macOS" "true"  copy-on-select copy-on-select
+add "select-off" "Selecting text does NOT copy it automatically" "false" copy-on-select copy-on-select
+
+add "trim-on"  "Trim trailing spaces on copy -- Ghostty default" "true"  clipboard-trim clipboard-trim-trailing-spaces
+add "trim-off" "Keep trailing spaces as-is when copying"          "false" clipboard-trim clipboard-trim-trailing-spaces
+
+run_picker clipboard Clipboard "${1:-}"

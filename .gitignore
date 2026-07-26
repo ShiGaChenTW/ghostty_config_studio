@@ -1,0 +1,7 @@
+# Compiled TUI binary — build it with: cd tui && go build -o ../ghostty-tui .
+/ghostty-tui
+
+# Optional config packs, fetched on demand by ./ghostty-setup.
+# Deliberately not committed: they belong to their upstream authors, and
+# importing on demand means you always get the current upstream version.
+/assets/

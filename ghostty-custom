@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Your own custom presets — the "workbench": snapshot whatever combination
+# of theme/font/cursor you currently have active into a reusable named
+# preset, without hand-writing any config syntax.
+#
+#   ghostty-custom                 interactive numbered menu over your saved presets
+#   ghostty-custom <name>          switch directly
+#   ghostty-custom --save <name>   save your CURRENT selection as a new preset
+#   ghostty-custom --current       show every category's active selection
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/menu.sh
+source "$SCRIPT_DIR/lib/menu.sh"
+
+CUSTOM_DIR="$GHOSTTY_DIR/ghostty-tui-custom"
+
+if [ "${1:-}" = "--current" ]; then show_current; exit 0; fi
+
+if [ "${1:-}" = "--save" ]; then
+  name="${2:-}"
+  if [ -z "$name" ]; then
+    echo "Usage: ghostty-custom --save <name>" >&2
+    exit 1
+  fi
+  mkdir -p "$CUSTOM_DIR"
+  save_current_as "$CUSTOM_DIR/$name.conf"
+  echo "Saved current selection as custom preset: $name"
+  exit 0
+fi
+
+names=(); descs=(); paths=(); shader_srcs=(); kinds=(); sources=()
+mkdir -p "$CUSTOM_DIR"
+for f in "$CUSTOM_DIR"/*.conf; do
+  [ -f "$f" ] || continue
+  name="$(basename "$f" .conf)"
+  names+=("$name"); descs+=("你儲存的自訂 preset"); paths+=("$f")
+  shader_srcs+=(""); kinds+=("file"); sources+=("you")
+done
+
+if [ ${#names[@]} -eq 0 ]; then
+  echo "還沒有任何自訂 preset。先用 ghostty-theme/-font/-cursor 選好想要的組合，" >&2
+  echo "再存起來：ghostty-custom --save <名稱>" >&2
+  exit 1
+fi
+
+run_picker custom Custom "${1:-}"

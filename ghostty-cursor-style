@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Cursor shape/blink settings — cursor-style and cursor-style-blink. NOT the
+# same thing as `ghostty-cursor` (that one applies GLSL cursor *effect*
+# shaders via custom-shader); this one is Ghostty's own built-in cursor
+# shape, a completely separate setting that can be combined with a shader.
+#
+#   ghostty-cursor-style              interactive numbered menu
+#   ghostty-cursor-style style-bar    direct name
+#   ghostty-cursor-style --current    show every category's active selection
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/menu.sh
+source "$SCRIPT_DIR/lib/menu.sh"
+
+if [ "${1:-}" = "--current" ]; then show_current; exit 0; fi
+
+names=(); descs=(); paths=(); shader_srcs=(); kinds=(); sources=(); categories=(); keys=()
+
+add() {
+  names+=("$1"); descs+=("$2"); paths+=("$3"); shader_srcs+=("")
+  kinds+=("raw"); sources+=(""); categories+=("$4"); keys+=("$5")
+}
+
+add "style-block"        "Block cursor -- Ghostty default"   "block"        cursor-style cursor-style
+add "style-bar"          "Bar cursor -- thin vertical line"  "bar"          cursor-style cursor-style
+add "style-underline"    "Underline cursor"                  "underline"    cursor-style cursor-style
+add "style-block-hollow" "Hollow block cursor (outline only)" "block_hollow" cursor-style cursor-style
+
+add "blink-on"  "Blinking cursor -- Ghostty default" "true"  cursor-blink cursor-style-blink
+add "blink-off" "Solid, non-blinking cursor"          "false" cursor-blink cursor-style-blink
+
+run_picker cursor-style "Cursor Style" "${1:-}"

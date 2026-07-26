@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Interactive picker over naydenoff/ghostty-config's 5 complete presets
+# (theme + font + cursor + window, already combined). Selecting a preset
+# replaces the whole managed block — see lib/menu.sh set_solo_path_for.
+#
+#   ghostty-preset              interactive numbered menu
+#   ghostty-preset <name>       switch directly, e.g. `ghostty-preset cozy-coding`
+#   ghostty-preset --current    show every category's active selection
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/menu.sh
+source "$SCRIPT_DIR/lib/menu.sh"
+
+if [ "${1:-}" = "--current" ]; then show_current; exit 0; fi
+
+names=(); descs=(); paths=(); shader_srcs=(); kinds=(); sources=()
+
+preset_desc() {
+  case "$1" in
+    cozy-coding)          echo "Cozy Coding -- Gruvbox + JetBrains Mono, warm coffee-shop marathon sessions" ;;
+    cyberpunk-dev)        echo "Cyberpunk Dev -- Tokyo Night + Fira Code, neon-lit React/TypeScript coding" ;;
+    minimal-focus)        echo "Minimal Focus -- Nord + Iosevka, clean Scandinavian, max density" ;;
+    professional-elegant) echo "Professional Elegant -- Dracula + Cascadia Code, refined for client demos" ;;
+    warp-dark)            echo "Warp Dark -- matches Warp terminal's appearance and typography" ;;
+    *)                    echo "$1" ;;
+  esac
+}
+
+for f in "$SCRIPT_DIR"/assets/presets/*.conf; do
+  [ -f "$f" ] || continue
+  name="$(basename "$f" .conf)"
+  names+=("$name"); descs+=("$(preset_desc "$name")"); paths+=("$f"); shader_srcs+=(""); sources+=("naydenoff")
+done
+
+run_picker preset Preset "${1:-}"
