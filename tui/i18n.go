@@ -220,10 +220,23 @@ func txtDefaultValue() string { return tr("預設值：", "Default:") }
 
 // Footers.
 
-func txtBrowserFooter() string {
-	return tr(
-		"[↑/↓] 移動  [/] 搜尋  [t] 標籤  [enter] 套用  [s] 存目前組合  [n] 新設定檔  [e] 編輯設定  [L] English  [q] 離開",
-		"[↑/↓] move  [/] search  [t] tags  [enter] apply  [s] save current  [n] new config  [e] edit  [L] 中文  [q] quit")
+// txtBrowserFooterParts returns one hint per element rather than one joined
+// line: eleven hints need 131 (zh) / 134 (en) columns, so at the enforced
+// 80-column minimum the footer has to be packed into more than one row —
+// see footerRows, which decides how many.
+func txtBrowserFooterParts() []string {
+	if lang == langEN {
+		return []string{
+			"[↑/↓] move", "[/] search", "[t] tags", "[p] preview",
+			"[enter] apply", "[u] undo", "[s] save current", "[n] new config",
+			"[e] edit", "[L] 中文", "[q] quit",
+		}
+	}
+	return []string{
+		"[↑/↓] 移動", "[/] 搜尋", "[t] 標籤", "[p] 預覽",
+		"[enter] 套用", "[u] 復原", "[s] 存目前組合", "[n] 新設定檔",
+		"[e] 編輯設定", "[L] English", "[q] 離開",
+	}
 }
 
 func txtEditorFooter() string {
@@ -336,6 +349,26 @@ func txtSwitched(cat, name, desc string) string {
 	return tr("已切換 "+cat+"："+name+" — "+desc,
 		"Switched "+cat+" to "+name+" — "+desc)
 }
+func txtPreviewOpened(name string) string {
+	return tr("預覽視窗已開啟："+name+"（用完關掉即可，你的設定沒有被動到）",
+		"Preview window opened: "+name+" (close it when done; your config is untouched)")
+}
+
+// txtPreviewFailed names both candidate causes, because `open` reports them
+// through the same non-zero exit and its own message is what says which.
+func txtPreviewFailed(detail string) string {
+	return tr("開不了預覽視窗（找不到 Ghostty.app，或 open 失敗）："+detail,
+		"Couldn't open a preview window (Ghostty.app not found, or open failed): "+detail)
+}
+
+func txtUndoFailed(detail string) string {
+	return tr("復原失敗："+detail, "Undo failed: "+detail)
+}
+
+// txtUndoDone is only reached if undo_last_apply succeeds while printing
+// nothing; normally its own summary line is shown verbatim instead.
+func txtUndoDone() string { return tr("已復原上一次套用", "Undid the last apply") }
+
 func txtNoPreview() string {
 	return tr("（這個內建主題沒有本機檔案可預覽）",
 		"(no local file to preview for this built-in theme)")

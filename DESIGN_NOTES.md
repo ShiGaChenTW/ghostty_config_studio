@@ -65,6 +65,51 @@ lie.
 then silently ignored by Ghostty, so the UI would show a setting as active
 while it does nothing. The editor treats an empty input as "not set".
 
+## Safety net around the write
+
+**Every apply is validated, and a failed validation is rolled back.** The
+dangling-include failure above is silent and total: Ghostty abandons the whole
+config and falls back to defaults, so a user loses every unrelated setting too
+with nothing on screen to explain it. `apply_selection` snapshots first, writes,
+then runs `+validate-config`; if that fails the previous file goes straight back
+and the apply reports failure. The rollback consumes its own snapshot, so a
+failed attempt never leaves an undo step pointing at a broken write.
+
+**Not being able to validate is not a reason to refuse the write.** If no
+Ghostty binary can be found, `validate_config` returns success. Same for a
+config file that does not exist yet: `+validate-config` exits 1 with no message
+at all in that case, which would read as "your config is broken" to someone who
+simply has not made one.
+
+**A snapshot of "there was no config" is not the same as an empty config.** The
+history keeps those as `.missing` files, and restoring one deletes the config
+rather than leaving an empty file behind — to Ghostty, an empty config is still
+a config.
+
+**Rollback restores the snapshot this process took, not the newest one on
+disk.** Two terminals applying at once would otherwise have one roll back the
+other's snapshot.
+
+## Preview
+
+**A preview window is a second Ghostty told to read nothing but the candidate.**
+`open -na Ghostty.app --args --config-default-files=false --config-file=<tmp>`.
+`config-default-files` is CLI-only and stops Ghostty loading any of the user's
+config files, so the window shows the candidate alone — which also means the
+macOS "Application Support config wins" problem cannot distort a preview, since
+that file is not read at all. Verified by giving a sandbox config a
+`working-directory` the candidate never mentions: without the flag the window
+reports that directory, with it the window reports `$HOME`.
+
+On macOS the emulator cannot be launched through the `ghostty` binary at all
+(`ghostty +help` says so) — `open -na` is the supported path, and it finds the
+app wherever LaunchServices has it registered rather than only under
+`/Applications`.
+
+**The temp config is deleted on a delay, not on the way out.** `open -na`
+returns as soon as the launch has been *requested*, so deleting immediately
+races Ghostty's one read of the file at startup.
+
 ## Rendering
 
 **Never nest already-styled multi-line content inside another
@@ -157,6 +202,15 @@ replaces wholesale, so assets written there would vanish on the next version
 bump — and on Intel prefixes may not be writable at all. `lib/menu.sh` exports
 `STUDIO_ASSETS` and `tui/main.go`'s `studioAssetsDir()` mirrors it; both honour
 `GHOSTTY_STUDIO_DIR` so tests can redirect them.
+
+**The reported version is injected, never typed.** It was
+`const version = "0.1.8"` in `main.go` until v0.1.9 shipped a binary still
+claiming to be 0.1.8 — the formula's own `test do` compares the two, so the
+package was internally inconsistent and only running the binary would show it.
+The formula now passes `-X main.version=#{version}` and `tui/version.go`
+defaults to `dev` for a plain `go build`. `scripts/release.sh` is the other half:
+it gates, tags, pushes, computes the tarball sha and rewrites the tap formula, so
+the nine-step sequence cannot lose a step again.
 
 **The formula uses exec wrappers, not symlinks.** The shell entry points find
 `lib/menu.sh` through `$BASH_SOURCE`, which resolves to the symlink itself, not

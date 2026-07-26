@@ -7,3 +7,7 @@
 
 # macOS
 .DS_Store
+
+# Local working notes and agent scratch space — workflow, not product.
+/plans/
+/.claude/

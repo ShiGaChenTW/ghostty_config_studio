@@ -21,7 +21,13 @@ class GhosttyConfigStudio < Formula
 
   def install
     cd "tui" do
-      system "go", "build", *std_go_args(output: libexec/"ghostty-tui")
+      # The reported version is injected from this formula's own `version`,
+      # which Homebrew parses out of the tagged url above. It used to be a
+      # hand-edited constant in main.go, and v0.1.9 shipped a binary still
+      # calling itself 0.1.8 — the test block below compares the two, so the
+      # only way to keep them honest is to have one source for both.
+      system "go", "build", *std_go_args(output: libexec/"ghostty-tui",
+                                         ldflags: "-X main.version=#{version}")
     end
     bin.write_exec_script libexec/"ghostty-tui"
 

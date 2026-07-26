@@ -782,6 +782,117 @@ func applyEntry(dir string, e entry) (string, error) {
 	return string(out), err
 }
 
+// firstLine keeps a message to the one row the status bar has. The bash side
+// explains itself over several lines; the rest is for the command-line tools.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return s
+}
+
+// --- Live preview: render an entry in a throwaway Ghostty window ---
+
+// previewConfig asks lib/menu.sh what this entry's directive lines look like,
+// for the same reason applyEntry asks it to write them: one implementation of
+// the config write, so the CLI and the TUI cannot drift. preview_directive
+// prints to stdout and never touches ~/.config/ghostty/config.
+func previewConfig(dir string, e entry) (string, error) {
+	cmd := exec.Command("bash", "-c",
+		fmt.Sprintf(`source %q; preview_directive "$1" "$2" "$3" "$4"`, filepath.Join(dir, "lib/menu.sh")),
+		"--", e.value, e.kind, e.settingKey, e.shaderSrc)
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		detail := firstLine(strings.TrimSpace(stderr.String()))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return "", fmt.Errorf("%s", detail)
+	}
+	return stdout.String(), nil
+}
+
+// previewEntry opens a throwaway Ghostty window showing the entry for real —
+// the only way to see one of the 12 GLSL shader themes before committing to
+// it, since a text pane can only ever say the effect exists.
+//
+// `--config-default-files=false` is a CLI-only Ghostty option that stops it
+// loading any of the user's config files, so the window shows the candidate
+// alone. That also sidesteps the macOS "Application Support config overrides
+// you" problem that warn_if_shadowed exists for: the file that would win
+// isn't read at all here. On macOS the emulator cannot be started through the
+// `ghostty` binary (`ghostty +help` says so) — `open -na` is the supported
+// path, and it finds the app wherever LaunchServices has it registered rather
+// than only under /Applications.
+//
+// Read-only with respect to the user's config by construction: nothing is
+// written but the temp file, and the launched process is told to read
+// nothing else.
+func previewEntry(dir string, e entry) error {
+	body, err := previewConfig(dir, e)
+	if err != nil {
+		return err
+	}
+	f, err := os.CreateTemp("", "ghostty-studio-preview-*.conf")
+	if err != nil {
+		return err
+	}
+	_, writeErr := f.WriteString(body)
+	closeErr := f.Close()
+	// Ghostty reads the config once, at startup, and never looks at the file
+	// again — but `open -na` returns as soon as the launch has been
+	// *requested*, so deleting on the way out of this function would race
+	// that read. A detached sleep-then-delete (same fire-and-forget shape as
+	// restartGhostty) is the one cleanup that neither races the read nor
+	// depends on how this process ends: a minute is orders of magnitude more
+	// than a cold start, and it still runs if the TUI is killed meanwhile.
+	defer scheduleDelete(f.Name())
+	if writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+
+	out, err := exec.Command("open", "-na", "Ghostty.app", "--args",
+		"--config-default-files=false", "--config-file="+f.Name()).CombinedOutput()
+	if err != nil {
+		detail := firstLine(strings.TrimSpace(string(out)))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return fmt.Errorf("%s", detail)
+	}
+	return nil
+}
+
+func scheduleDelete(path string) {
+	cmd := exec.Command("bash", "-c", fmt.Sprintf("sleep 60; rm -f %q", path))
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	_ = cmd.Start()
+}
+
+// undoLastApply walks the managed block back one snapshot. The bash side owns
+// both the snapshots and the wording of the result, so its summary line is
+// shown verbatim rather than reworded here.
+func undoLastApply(dir string) (string, error) {
+	cmd := exec.Command("bash", "-c",
+		fmt.Sprintf(`source %q; undo_last_apply`, filepath.Join(dir, "lib/menu.sh")))
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		detail := firstLine(strings.TrimSpace(stderr.String()))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return "", fmt.Errorf("%s", detail)
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
 // customPresetDir is where saveCurrentAsCustom writes, and where
 // buildEntries scans for the "custom" category — the on-disk half of the
 // TUI-driven workbench (bash side: `ghostty-custom --save <name>`).
@@ -1362,10 +1473,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.previewWidth = maxInt(innerW-listCard-4, 20)
 		// Rows spent outside the list itself: 2 leading blanks + 4 for the
 		// title band (3 filled rows + its shadow row) + 1 blank + 2 pane
-		// borders + 1 pane label + 1 footer. The status row is transient
-		// and deliberately not budgeted — a message just pushes the footer
-		// down one row rather than permanently shrinking the list.
-		m.bodyHeight = m.height - 11
+		// borders + 1 pane label + however many rows the footer needs. The
+		// status row is transient and deliberately not budgeted — a message
+		// just pushes the footer down one row rather than permanently
+		// shrinking the list.
+		m.bodyHeight = m.height - 10 - len(footerRows(innerW))
 		m.list.SetSize(m.listWidth, m.bodyHeight)
 
 	case tea.KeyMsg:
@@ -1508,6 +1620,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nameInput.SetValue("")
 				m.nameInput.Focus()
 				return m, textinput.Blink
+			case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
+				if item, ok := m.list.SelectedItem().(entry); ok {
+					if err := previewEntry(m.dir, item); err != nil {
+						m.status = txtPreviewFailed(err.Error())
+						m.statusOK = false
+					} else {
+						m.status = txtPreviewOpened(item.source + "/" + item.name)
+						m.statusOK = true
+					}
+				}
+				return m, nil
+			case key.Matches(msg, key.NewBinding(key.WithKeys("u"))):
+				// Shadows one of bubbles/list's five prev-page keys; b, pgup,
+				// ← and h all still page, so nothing is lost.
+				line, err := undoLastApply(m.dir)
+				if err != nil {
+					m.status = txtUndoFailed(err.Error())
+					m.statusOK = false
+					return m, nil
+				}
+				if line == "" {
+					line = txtUndoDone()
+				}
+				m.status = line
+				m.statusOK = true
+				// The managed block just moved underneath us — without this
+				// the "●" markers keep naming what was applied before.
+				m.current = currentSelections(m.dir)
+				return m, nil
 			case key.Matches(msg, key.NewBinding(key.WithKeys("e"))):
 				// Show only what can actually be edited, rather than acting
 				// on whatever happens to be selected and then refusing.
@@ -1583,6 +1724,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 const minWidth = 80
 const minHeight = 24 // tui-design skill: 80x24 is the standard minimum gate
+
+// footerRows packs the footer's key hints into as few rows as fit in w
+// display columns, measuring with the ANSI/CJK-aware lipgloss.Width. The
+// footer was a single joined line and already overflowed the enforced
+// 80-column minimum before [p] and [u] joined it — eleven hints need 131
+// columns in Chinese, 134 in English. A footer that wraps on its own steals
+// a row the height budget never knew it lost, which walks the bottom of the
+// card off the screen; the budget in WindowSizeMsg counts these rows instead.
+func footerRows(w int) []string {
+	var rows []string
+	cur := ""
+	for _, part := range txtBrowserFooterParts() {
+		if cur == "" {
+			cur = part
+			continue
+		}
+		if next := cur + "  " + part; lipgloss.Width(next) <= w {
+			cur = next
+			continue
+		}
+		rows = append(rows, cur)
+		cur = part
+	}
+	if cur != "" {
+		rows = append(rows, cur)
+	}
+	return rows
+}
 
 // statusLine renders the current status message, green on success and red
 // on failure, or "" when there's nothing to report. Shared so the browser
@@ -1730,7 +1899,7 @@ func (m model) View() string {
 	)
 
 	status := m.statusLine()
-	help := helpStyle.Render(txtBrowserFooter())
+	help := helpStyle.Render(strings.Join(footerRows(maxInt(m.width-2*sideMargin, 40)), "\n"))
 
 	// Orange title band with a drop shadow, spanning the same width as the
 	// two panes below (listWidth+previewWidth+8 counts each pane's chrome).
@@ -1752,11 +1921,6 @@ func (m model) View() string {
 	body := strings.Join(parts, "\n")
 	return indentBlock(body, sideMargin)
 }
-
-// version is stamped by hand at release time and must match the tag the
-// Homebrew formula points at. Reported by `ghostty-tui --version` so a bug
-// report can say which build it came from.
-const version = "0.1.10"
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {

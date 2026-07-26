@@ -15,6 +15,7 @@ GHOSTTY_SHADERS="$GHOSTTY_DIR/shaders"
 # clone entirely.
 STUDIO_DIR="${GHOSTTY_STUDIO_DIR:-$HOME/.config/ghostty-config-studio}"
 STUDIO_ASSETS="$STUDIO_DIR/assets"
+HISTORY_DIR="$STUDIO_DIR/history"
 
 # Language is shared with the TUI: both read the same file, so toggling with
 # [L] inside ghostty-tui also switches what these commands print. One switch
@@ -96,6 +97,123 @@ _write_directive() {
   _directive_line "$value" "$kind" "$key" > "$out"
 }
 
+# The snapshot this process took most recently, so a failed apply can put back
+# exactly the file it replaced rather than whatever happens to be newest in the
+# history directory — a second terminal applying at the same time would
+# otherwise have its snapshot rolled back by ours.
+_LAST_SNAPSHOT=""
+
+# A ".missing" snapshot records that there was no config at all, which is not
+# the same state as an empty one: restoring it has to delete the file, because
+# leaving an empty config behind still counts as a config to Ghostty.
+_restore_snapshot() {
+  local snapshot="$1" consume="${2:-0}"
+  [ -n "$snapshot" ] && [ -e "$snapshot" ] || return 1
+  mkdir -p "$GHOSTTY_DIR"
+  case "$snapshot" in
+    *.missing) rm -f "$GHOSTTY_CONFIG" ;;
+    *)         cp "$snapshot" "$GHOSTTY_CONFIG" ;;
+  esac
+  [ "$consume" = "1" ] && rm -f "$snapshot"
+  return 0
+}
+
+# Nothing in here may fail the caller: a history directory that cannot be
+# written is a worse reason to refuse a theme change than to lose the undo.
+# Every failure path returns 0, and the empty _LAST_SNAPSHOT tells apply_selection
+# there is nothing to roll back to.
+snapshot_config() {
+  local ts prefix idx pad snapshot kept f
+  _LAST_SNAPSHOT=""
+  ts="$(date +%Y%m%d-%H%M%S 2>/dev/null)" || return 0
+  mkdir -p "$HISTORY_DIR" 2>/dev/null || return 0
+  # date only resolves to the second, so two applies inside the same second
+  # would land on the same name. The counter breaks the tie and is zero-padded
+  # because the readers below order these by plain lexical sort, where "10"
+  # would otherwise come before "9".
+  prefix="$HISTORY_DIR/$ts-"
+  idx=0
+  while :; do
+    pad="$(printf '%04d' "$idx")" || return 0
+    if [ ! -e "${prefix}${pad}.conf" ] && [ ! -e "${prefix}${pad}.missing" ]; then
+      break
+    fi
+    idx=$((idx + 1))
+  done
+  if [ -f "$GHOSTTY_CONFIG" ]; then
+    snapshot="${prefix}${pad}.conf"
+    cp "$GHOSTTY_CONFIG" "$snapshot" 2>/dev/null || return 0
+  else
+    snapshot="${prefix}${pad}.missing"
+    : > "$snapshot" 2>/dev/null || return 0
+  fi
+  _LAST_SNAPSHOT="$snapshot"
+
+  # Reverse lexical order is newest-first given the name format above, so
+  # anything past the twentieth is older than the window worth keeping.
+  kept=0
+  for f in $(LC_ALL=C ls -1r "$HISTORY_DIR" 2>/dev/null); do
+    kept=$((kept + 1))
+    if [ "$kept" -gt 20 ]; then
+      rm -f "$HISTORY_DIR/$f"
+    fi
+  done
+  return 0
+}
+
+# Prints one line and one line only on success: the TUI puts it straight into a
+# single-row status bar, so a second line would push the layout out of shape.
+undo_last_apply() {
+  local latest base
+  latest=""
+  if [ -d "$HISTORY_DIR" ]; then
+    latest="$(LC_ALL=C ls -1 "$HISTORY_DIR" 2>/dev/null | tail -n 1)"
+  fi
+  if [ -z "$latest" ]; then
+    t "沒有可以還原的紀錄。" "Nothing to undo." >&2
+    return 1
+  fi
+  base="$HISTORY_DIR/$latest"
+  if ! _restore_snapshot "$base" 1; then
+    t "還原失敗：${latest}" "Could not restore: ${latest}" >&2
+    return 1
+  fi
+  case "$latest" in
+    *.missing) t "已還原：套用前沒有設定檔，已將它移除。" \
+                 "Restored: there was no config before this, removed it." ;;
+    *)         t "已還原 ${latest%.conf} 當時的設定檔。" \
+                 "Restored the config as it was at ${latest%.conf}." ;;
+  esac
+}
+
+validate_config() {
+  local ghostty_bin out status
+  ghostty_bin="$(command -v ghostty 2>/dev/null)" || ghostty_bin=""
+  # The app does not put itself on PATH, so on a normal macOS install this
+  # second location is the one that actually hits.
+  if [ -z "$ghostty_bin" ] && [ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ]; then
+    ghostty_bin=/Applications/Ghostty.app/Contents/MacOS/ghostty
+  fi
+  # Not being able to validate is not a reason to refuse the write.
+  [ -n "$ghostty_bin" ] || return 0
+  # A config-file that does not exist exits 1 with no message at all, which
+  # would read as "your config is broken" for someone who simply has not made
+  # one yet.
+  [ -f "$GHOSTTY_CONFIG" ] || return 0
+  # +show-config exits clean when an include is missing and never mentions it,
+  # so it cannot tell you the config is broken; +validate-config reports
+  # `error opening config-file …: error.FileNotFound`. See DESIGN_NOTES.md.
+  # It prints that on stdout, not stderr, and its stderr additionally carries
+  # unrelated Sentry init noise on some machines — hence capturing stdout and
+  # relaying that as the error.
+  out="$("$ghostty_bin" +validate-config --config-file="$GHOSTTY_CONFIG" 2>/dev/null)" && status=0 || status=$?
+  [ "$status" -eq 0 ] && return 0
+  # Progress output is carriage-return terminated and would overprint the
+  # message if it were passed through as-is.
+  [ -n "$out" ] && printf '%s\n' "$out" | tr '\r' '\n' >&2
+  return "$status"
+}
+
 # A directive pair may be preceded by font-family preamble lines. The reader
 # and the eraser below both have to step over them to reach the directive they
 # belong to; the directive is always the last line of the pair.
@@ -161,6 +279,23 @@ clear_categories_under() {
     t "  （已從 Ghostty 設定移除仍在套用的 ${cat}）" \
       "  (removed the still-applied $cat from your Ghostty config)"
   done
+}
+
+# preview_directive VALUE KIND KEY [SHADER_SRC] — the directive lines a
+# selection would write, for the TUI to drop into a throwaway config and open a
+# preview window with. Deliberately shares _directive_line with the real write
+# so a preview cannot show something the apply would not produce, and touches
+# $GHOSTTY_CONFIG nowhere: previewing must never alter what the user is running.
+preview_directive() {
+  local value="$1" kind="$2" key="$3" shader_src="${4:-}"
+  # A shader theme names ~/.config/ghostty/shaders/<name>.glsl by absolute path,
+  # so the preview window looks for it there and finds nothing unless the copy
+  # happens before the preview config is written, exactly as on a real apply.
+  if [ -n "$shader_src" ]; then
+    mkdir -p "$GHOSTTY_SHADERS"
+    cp "$shader_src" "$GHOSTTY_SHADERS/"
+  fi
+  _directive_line "$value" "$kind" "$key"
 }
 
 set_path_for() {
@@ -284,6 +419,7 @@ warn_if_shadowed() {
 
 apply_selection() {
   local category="$1" value="$2" kind="${3:-file}" shader_src="${4:-}" key="${5:-}"
+  snapshot_config
   if [ -n "$shader_src" ]; then
     mkdir -p "$GHOSTTY_SHADERS"
     cp "$shader_src" "$GHOSTTY_SHADERS/"
@@ -298,6 +434,20 @@ apply_selection() {
     set_solo_path_for "$category" "$value" "$kind" "$key"
   else
     set_path_for "$category" "$value" "$kind" "$key"
+  fi
+  # A write that does not survive validation is the dangling-include failure
+  # from DESIGN_NOTES.md: Ghostty gives up on the whole config and falls back to
+  # defaults, so the user loses every other setting too, with nothing on screen
+  # to explain it. Put the file back before that can reach a running terminal.
+  # The rollback consumes this apply's own snapshot so the failed attempt leaves
+  # no undo step pointing at the broken write.
+  if ! validate_config; then
+    if [ -n "$_LAST_SNAPSHOT" ]; then
+      _restore_snapshot "$_LAST_SNAPSHOT" 1 || true
+    fi
+    t "✖ 設定檔驗證失敗，已還原：${category}" \
+      "✖ Config validation failed, rolled back: ${category}" >&2
+    return 1
   fi
   # Advisory only: never let it turn a successful write into a failure.
   warn_if_shadowed "$value" "$kind" "$key" || true
