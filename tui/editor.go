@@ -271,12 +271,17 @@ func (e *editorState) view(width, height int, status string) string {
 
 	rows := e.curRows()
 	cur := e.rowIndex[e.catIndex]
-	// Scroll the row window to keep the cursor visible.
+	// A blank line between entries: packed one per line, 25 settings of
+	// similar shape ran together and the eye had nothing to land on. Each
+	// entry costs two display lines now, so the scroll window has to count
+	// entries rather than lines or the cursor walks off the bottom.
+	const linesPerEntry = 2
+	visible := maxInt((listRows+1)/linesPerEntry, 1)
 	start := 0
-	if cur >= listRows {
-		start = cur - listRows + 1
+	if cur >= visible {
+		start = cur - visible + 1
 	}
-	end := minInt(start+listRows, len(rows))
+	end := minInt(start+visible, len(rows))
 
 	lines := []string{labelStyle.Render(txtPaneItems()), ""}
 	for i := start; i < end; i++ {
@@ -298,6 +303,9 @@ func (e *editorState) view(width, height int, status string) string {
 			lines = append(lines, phosphorStyle.Render("  "+line))
 		} else {
 			lines = append(lines, helpStyle.Render("  "+line))
+		}
+		if i < end-1 {
+			lines = append(lines, "")
 		}
 	}
 	for len(lines) < bodyH {
