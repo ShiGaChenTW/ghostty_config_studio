@@ -28,31 +28,32 @@ config syntax or memorising key names.
 - **不覆寫你的設定檔**：只管理 `~/.config/ghostty/config` 裡一段用註解標記包住的
   區塊，區塊外的內容完全不動。
 
-## 需求
-
-- [Ghostty](https://ghostty.org)
-- macOS（目前只在 macOS 測試過；Linux 應該可跑但未驗證）
-- bash 3.2 以上（macOS 內建即可，不需要另外裝）
-- Go 1.21 以上（只有編譯 TUI 時需要）
-
 ## 安裝
 
 ```bash
-git clone https://github.com/<你的帳號>/ghostty-config-studio.git
-cd ghostty-config-studio
-cd tui && go build -o ../ghostty-tui . && cd ..
+brew install ShiGaChenTW/tap/ghostty-config-studio
 ```
 
-可選：加進 `PATH`，這樣任何目錄都能直接呼叫。
+一行就好。需要 macOS 與 [Ghostty](https://ghostty.org)；Go 只在 Homebrew 編譯時
+用到，你不需要自己裝。
+
+<details>
+<summary>不用 Homebrew，直接從原始碼裝</summary>
 
 ```bash
+git clone https://github.com/ShiGaChenTW/ghostty_config_studio.git
+cd ghostty_config_studio
+cd tui && go build -o ../ghostty-tui . && cd ..
 echo "export PATH=\"$PWD:\$PATH\"" >> ~/.zshrc
 ```
+
+需要 Go 1.21 以上與 bash 3.2 以上（macOS 內建即可）。
+</details>
 
 ## 開始使用
 
 ```bash
-./ghostty-tui
+ghostty-tui
 ```
 
 **這樣就能用了。** 不需要下載任何額外素材——Ghostty 自己內建的 460+ 個主題和
@@ -63,7 +64,7 @@ echo "export PATH=\"$PWD:\$PATH\"" >> ~/.zshrc
 想要更多主題（含 GLSL shader 特效、游標動畫）的話：
 
 ```bash
-./ghostty-setup
+ghostty-setup
 ```
 
 ```
@@ -80,8 +81,9 @@ Ghostty Config Studio — 素材匯入
   q) 離開
 ```
 
-可以**單獨挑**要哪幾包、隨時移除、也可以完全不匯入。素材放在 git-ignore 的
-`assets/`，來源與授權見 [`NOTICE.md`](NOTICE.md)。
+可以**單獨挑**要哪幾包、隨時移除、也可以完全不匯入。匯入的素材與你自己建立的
+設定檔都放在 `~/.config/ghostty-config-studio/`，不會被 `brew upgrade` 或
+`brew uninstall` 帶走。來源與授權見 [`NOTICE.md`](NOTICE.md)。
 
 ## TUI 操作
 
@@ -121,15 +123,15 @@ Ghostty Config Studio — 素材匯入
 TUI 之外，每個分類也有獨立的數字選單指令：
 
 ```bash
-./ghostty-theme              # 主題（含 --search 搜尋內建 460+ 個）
-./ghostty-font               # 字型
-./ghostty-preset             # 完整 preset
-./ghostty-cursor             # 游標特效 shader
-./ghostty-window             # 視窗透明度 / 模糊
-./ghostty-cursor-style       # 游標形狀 / 閃爍
-./ghostty-clipboard          # 剪貼簿行為
-./ghostty-custom             # 你自己存的組合
-./ghostty-theme --current    # 顯示目前每個分類的選擇
+ghostty-theme              # 主題（含 --search 搜尋內建 460+ 個）
+ghostty-font               # 字型
+ghostty-preset             # 完整 preset
+ghostty-cursor             # 游標特效 shader
+ghostty-window             # 視窗透明度 / 模糊
+ghostty-cursor-style       # 游標形狀 / 閃爍
+ghostty-clipboard          # 剪貼簿行為
+ghostty-custom             # 你自己存的組合
+ghostty-theme --current    # 顯示目前每個分類的選擇
 ```
 
 ## 運作方式

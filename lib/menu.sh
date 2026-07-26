@@ -6,6 +6,15 @@ set -euo pipefail
 GHOSTTY_DIR="${GHOSTTY_DIR:-$HOME/.config/ghostty}"
 GHOSTTY_CONFIG="$GHOSTTY_DIR/config"
 GHOSTTY_SHADERS="$GHOSTTY_DIR/shaders"
+
+# Imported asset packs live in a user-owned directory, never next to the
+# scripts. A Homebrew install puts the scripts under a Cellar prefix that
+# `brew upgrade` replaces wholesale, so anything written there would silently
+# vanish on the next version bump — and on Intel prefixes it may not even be
+# writable. This location survives upgrades, `git pull`, and deleting the
+# clone entirely.
+STUDIO_DIR="${GHOSTTY_STUDIO_DIR:-$HOME/.config/ghostty-config-studio}"
+STUDIO_ASSETS="$STUDIO_DIR/assets"
 BEGIN_MARK="# >>> ghostty-picker managed >>>"
 END_MARK="# <<< ghostty-picker managed <<<"
 
@@ -220,7 +229,7 @@ run_picker() {
   # imported on demand. Say so rather than presenting an empty "[1-0]" menu.
   if [ "$n" -eq 0 ]; then
     echo "沒有可用的${label}項目。" >&2
-    echo "這些素材是選用的，執行 ./ghostty-setup 可以挑要匯入哪些設定檔集。" >&2
+    echo "這些素材是選用的，執行 ghostty-setup 可以挑要匯入哪些設定檔集。" >&2
     return 1
   fi
 

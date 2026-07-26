@@ -31,7 +31,7 @@ cursor_desc() {
   esac
 }
 
-for f in "$SCRIPT_DIR"/assets/cursor-shaders/*.glsl; do
+for f in "$STUDIO_ASSETS"/cursor-shaders/*.glsl; do
   [ -f "$f" ] || continue
   name="$(basename "$f" .glsl)"
   names+=("$name"); descs+=("$(cursor_desc "$name")"); paths+=("$f")

@@ -78,6 +78,11 @@ func txtPaneDetail() string   { return tr("詳細說明", "Details") }
 func txtAllowedValue() string { return tr("可填值", "Allowed") }
 func txtDefault() string      { return tr("Ghostty 預設", "Ghostty default") }
 
+// bubbles/list builds its own "N items" status line from these two words.
+func txtStatusItemName() (string, string) {
+	return tr("個項目", "item"), tr("個項目", "items")
+}
+
 func txtItemCount(n int) string {
 	if lang == langEN {
 		return plural(n, "item", "items")

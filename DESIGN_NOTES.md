@@ -105,6 +105,22 @@ Toggling on the browser screen rebuilds the list items: descriptions are
 language-dependent and bubbles/list caches what it was given, so without a
 rebuild the rows keep the old language until something else changes them.
 
+## Packaging
+
+**Imported packs live in `~/.config/ghostty-config-studio/`, never beside the
+binary.** A Homebrew install lands under a Cellar prefix that `brew upgrade`
+replaces wholesale, so assets written there would vanish on the next version
+bump — and on Intel prefixes may not be writable at all. `lib/menu.sh` exports
+`STUDIO_ASSETS` and `tui/main.go`'s `studioAssetsDir()` mirrors it; both honour
+`GHOSTTY_STUDIO_DIR` so tests can redirect them.
+
+**The formula uses exec wrappers, not symlinks.** The shell entry points find
+`lib/menu.sh` through `$BASH_SOURCE`, which resolves to the symlink itself, not
+its target — a symlinked `ghostty-theme` would look for `lib/` inside
+Homebrew's `bin` and fail. `bin.write_exec_script` generates a wrapper that
+execs the real path in `libexec`, so `$BASH_SOURCE` stays honest. (The Go
+binary would survive either way; it calls `filepath.EvalSymlinks`.)
+
 ## Portability
 
 **macOS ships bash 3.2.** No `declare -A`, no `${var^}`. Everything here runs

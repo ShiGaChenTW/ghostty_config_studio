@@ -26,7 +26,7 @@ preset_desc() {
   esac
 }
 
-for f in "$SCRIPT_DIR"/assets/presets/*.conf; do
+for f in "$STUDIO_ASSETS"/presets/*.conf; do
   [ -f "$f" ] || continue
   name="$(basename "$f" .conf)"
   names+=("$name"); descs+=("$(preset_desc "$name")"); paths+=("$f"); shader_srcs+=(""); sources+=("naydenoff")

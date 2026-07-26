@@ -67,7 +67,7 @@ shader_desc_override() {
   esac
 }
 
-for f in "$SCRIPT_DIR"/assets/shader-themes/config.*; do
+for f in "$STUDIO_ASSETS"/shader-themes/config.*; do
   [ -f "$f" ] || continue
   name="${f##*/config.}"
   override="$(shader_desc_override "$name")"
@@ -80,7 +80,7 @@ for f in "$SCRIPT_DIR"/assets/shader-themes/config.*; do
   shader_file="${shader_line##*/}"
   names+=("$name"); descs+=("$desc"); paths+=("$f"); sources+=("snedea")
   if [ -n "$shader_file" ]; then
-    shader_srcs+=("$SCRIPT_DIR/assets/shader-themes/shaders/$shader_file")
+    shader_srcs+=("$STUDIO_ASSETS/shader-themes/shaders/$shader_file")
   else
     shader_srcs+=("")
   fi
@@ -98,7 +98,7 @@ color_desc() {
   esac
 }
 
-for f in "$SCRIPT_DIR"/assets/color-themes/*.conf; do
+for f in "$STUDIO_ASSETS"/color-themes/*.conf; do
   [ -f "$f" ] || continue
   name="$(basename "$f" .conf)"
   names+=("$name"); descs+=("$(color_desc "$name")"); paths+=("$f"); shader_srcs+=(""); sources+=("naydenoff")

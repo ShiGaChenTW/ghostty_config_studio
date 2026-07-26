@@ -23,7 +23,7 @@ font_desc() {
   esac
 }
 
-for f in "$SCRIPT_DIR"/assets/fonts/*.conf; do
+for f in "$STUDIO_ASSETS"/fonts/*.conf; do
   [ -f "$f" ] || continue
   name="$(basename "$f" .conf)"
   names+=("$name"); descs+=("$(font_desc "$name")"); paths+=("$f"); shader_srcs+=(""); sources+=("naydenoff")

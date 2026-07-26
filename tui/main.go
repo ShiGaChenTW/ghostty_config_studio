@@ -261,6 +261,17 @@ func ghosttyConfigDir() string {
 	return filepath.Join(home, ".config", "ghostty")
 }
 
+// studioAssetsDir mirrors lib/menu.sh's STUDIO_ASSETS: imported packs live in
+// a user-owned directory, not beside the binary, so a `brew upgrade` replacing
+// the install prefix doesn't take them with it.
+func studioAssetsDir() string {
+	if d := os.Getenv("GHOSTTY_STUDIO_DIR"); d != "" {
+		return filepath.Join(d, "assets")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "ghostty-config-studio", "assets")
+}
+
 func recentFilePath() string {
 	return filepath.Join(ghosttyConfigDir(), ".ghostty-tui-recent")
 }
@@ -502,7 +513,7 @@ func buildEntries(dir string) []entry {
 	var items []entry
 
 	// 12 shader themes (snedea/ghostty-themes)
-	shaderFiles, _ := filepath.Glob(filepath.Join(dir, "assets/shader-themes/config.*"))
+	shaderFiles, _ := filepath.Glob(filepath.Join(studioAssetsDir(), "shader-themes/config.*"))
 	for _, f := range shaderFiles {
 		name := strings.TrimPrefix(filepath.Base(f), "config.")
 		desc := shaderDescOverride[name]
@@ -511,7 +522,7 @@ func buildEntries(dir string) []entry {
 		}
 		shaderSrc := ""
 		if sf := shaderFileFor(f); sf != "" {
-			shaderSrc = filepath.Join(dir, "assets/shader-themes/shaders", sf)
+			shaderSrc = filepath.Join(studioAssetsDir(), "shader-themes/shaders", sf)
 		}
 		items = append(items, entry{
 			source: "snedea", name: name, desc: desc, category: "theme",
@@ -520,7 +531,7 @@ func buildEntries(dir string) []entry {
 	}
 
 	// 6 color themes (naydenoff/ghostty-config)
-	colorFiles, _ := filepath.Glob(filepath.Join(dir, "assets/color-themes/*.conf"))
+	colorFiles, _ := filepath.Glob(filepath.Join(studioAssetsDir(), "color-themes/*.conf"))
 	for _, f := range colorFiles {
 		name := strings.TrimSuffix(filepath.Base(f), ".conf")
 		desc := colorDesc[name]
@@ -534,7 +545,7 @@ func buildEntries(dir string) []entry {
 	}
 
 	// 4 fonts (naydenoff/ghostty-config)
-	fontFiles, _ := filepath.Glob(filepath.Join(dir, "assets/fonts/*.conf"))
+	fontFiles, _ := filepath.Glob(filepath.Join(studioAssetsDir(), "fonts/*.conf"))
 	for _, f := range fontFiles {
 		name := strings.TrimSuffix(filepath.Base(f), ".conf")
 		desc := fontDesc[name]
@@ -548,7 +559,7 @@ func buildEntries(dir string) []entry {
 	}
 
 	// 5 presets (naydenoff/ghostty-config)
-	presetFiles, _ := filepath.Glob(filepath.Join(dir, "assets/presets/*.conf"))
+	presetFiles, _ := filepath.Glob(filepath.Join(studioAssetsDir(), "presets/*.conf"))
 	for _, f := range presetFiles {
 		name := strings.TrimSuffix(filepath.Base(f), ".conf")
 		desc := presetDesc[name]
@@ -566,7 +577,7 @@ func buildEntries(dir string) []entry {
 	// `custom-shader = <path>` line (kind=shader), not a config-file
 	// include, and Ghostty stacks multiple custom-shader directives so
 	// this coexists with a background theme rather than replacing it.
-	cursorFiles, _ := filepath.Glob(filepath.Join(dir, "assets/cursor-shaders/*.glsl"))
+	cursorFiles, _ := filepath.Glob(filepath.Join(studioAssetsDir(), "cursor-shaders/*.glsl"))
 	for _, f := range cursorFiles {
 		name := strings.TrimSuffix(filepath.Base(f), ".glsl")
 		desc := cursorShaderDesc[name]
@@ -968,6 +979,7 @@ func newModel(dir string) model {
 	// just be a third copy of the same words.
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(true) // kept: this is what reports filter state
+	l.SetStatusBarItemName(txtStatusItemName())
 	// The screen already has its own footer; the list's built-in help line
 	// would repeat the same keys a second time inside the pane.
 	l.SetShowHelp(false)
@@ -1336,6 +1348,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Item descriptions are language-dependent, so the list's
 				// items have to be rebuilt for the change to show.
 				m = m.refreshEntries()
+				m.list.SetStatusBarItemName(txtStatusItemName())
 				m.lastPreviewKey = ""
 				m.updatePreviewForSelection()
 				m.status = ""

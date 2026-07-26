@@ -10,9 +10,9 @@
 # copied in alongside its files.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ASSETS="$SCRIPT_DIR/assets"
 # shellcheck source=lib/menu.sh
 source "$SCRIPT_DIR/lib/menu.sh"
+ASSETS="$STUDIO_ASSETS"
 
 # name|repo|description|target subdir
 PACKS=(
