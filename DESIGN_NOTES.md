@@ -280,13 +280,67 @@ messages to a single list means any other list's filter silently never applies.
 and help chrome are added on top, so the rendered height exceeds `h`. Measure
 the rendered output if you need panes to match.
 
+## Layout of the code
+
+**`lib/menu.sh` is a loader; the implementation is one file per concern.** It
+reached 1340 lines holding five unrelated jobs. `core.sh` goes first and must:
+it defines the paths, the markers, the `t` bilingual helper and the write lock
+that every later part depends on. The rest are order-independent, because bash
+resolves function calls at call time. Sourcing `lib/menu.sh` still exposes the
+whole public surface, which is what the nine entry points and the TUI's
+`bash -c 'source lib/menu.sh; …'` shell-out both rely on.
+
+A part that fails to load stops with a message naming the file, rather than
+leaving a half-built library to fail somewhere far away. The Homebrew formula
+installs `lib/` wholesale, so extra files ship for free — but that layout is
+worth testing directly, since `$BASH_SOURCE` resolution from a `libexec` install
+is not what a git clone exercises.
+
+**`scripts/check.sh` globs `lib/*.sh` rather than listing files.** The split
+left the hardcoded list naming only `menu.sh`, so the UTF-8 lint — the most
+important portability gate in the project — was covering a 36-line loader while
+every bilingual string had moved somewhere it no longer looked.
+
+**The overlay handlers live in `tui/overlays.go`.** `Update` had grown to 306
+lines because each new overlay added another early-return block ahead of the
+browser's own key switch, so adding the seventh meant understanding the other
+six. The order they are checked in is still load-bearing — a confirmation is
+checked before the panel that raised it — and that ordering is now stated in
+one place instead of being implied by the layout of a long function.
+
 ## Catalog
 
 `tui/keycatalog.go` is generated-assisted: key names, defaults and enumerated
 legal values come from parsing `ghostty +show-config --default=true
 --docs=true` on a real install, rather than being transcribed by hand. The
 Traditional Chinese names, descriptions and category assignments are written by
-hand. Regenerate against a newer Ghostty by re-parsing that same command.
+hand.
+
+**Do not take the enumerated values from the docs output.** A non-empty
+`validVals` makes the editor a CLOSED picker — the user can only commit one of
+those values, with no way to type another — so a list short by one value does
+not degrade, it makes a legal setting unreachable. Parsing the doc prose
+produced exactly that on Ghostty 1.3.1, live for 13 keys: `shell-integration`
+offered 3 of its 7 values, `macos-icon` 4 of 11, and ten keys with a real third
+option (`copy-on-select` has `clipboard`, `confirm-close-surface` has `always`)
+were left as plain booleans.
+
+The binary answers unambiguously if you ask it wrong. Feed a key a value it
+cannot accept and `+validate-config` prints the real list:
+
+```
+$ printf 'shell-integration = __probe__\n' > c
+$ ghostty +validate-config --config-file=c
+invalid value "__probe__", valid values are: none, detect, bash, elvish, …
+```
+
+`scripts/check-catalog.sh` does that for every key and reports drift, in both
+directions, against whatever Ghostty is installed. It runs in the release gate.
+It is deliberately **not** a generator: Ghostty's own `--help` says the option
+list lives in `src/config/Config.zig` and that a command-line interface for it
+is future work, so the parseable surface is trusted only for what it answers
+unambiguously — which keys exist, and what each enum accepts. Everything that
+takes judgement stays hand-written.
 
 A newer Ghostty may have keys this catalog lacks. Two consequences are handled:
 the editor keeps a manual-key escape hatch, and saving preserves any key

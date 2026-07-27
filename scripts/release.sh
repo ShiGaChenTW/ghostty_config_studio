@@ -54,6 +54,10 @@ echo "    $tag from main, tap in sync"
 step "checks"
 ./scripts/check.sh || die "scripts/check.sh failed"
 ./scripts/test-writes.sh >/dev/null || die "scripts/test-writes.sh failed — run it directly to see which assertion"
+# Not in test-writes.sh: it costs ~20s of probing the Ghostty binary, and it
+# checks this build against whatever Ghostty happens to be installed rather
+# than against the code. A release is exactly when that is worth knowing.
+./scripts/check-catalog.sh || die "tui/keycatalog.go has drifted from the installed Ghostty (see above)"
 (cd tui && go build ./...) || die "go build failed"
 (cd tui && go vet ./...) || die "go vet failed"
 

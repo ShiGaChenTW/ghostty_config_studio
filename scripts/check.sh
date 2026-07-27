@@ -17,7 +17,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 fail=0
 say() { printf '%-46s %s\n' "$1" "$2"; }
 
-SHELL_FILES=(lib/menu.sh ghostty-setup ghostty-theme ghostty-font ghostty-preset
+# Globbed, not listed. When lib/menu.sh was split into one file per concern the
+# hardcoded list still named only menu.sh, so the UTF-8 lint below was left
+# covering a 36-line loader while every bilingual string in the project had
+# moved into files it no longer looked at.
+SHELL_FILES=(lib/*.sh ghostty-setup ghostty-theme ghostty-font ghostty-preset
              ghostty-cursor ghostty-custom ghostty-window ghostty-cursor-style
              ghostty-clipboard)
 
