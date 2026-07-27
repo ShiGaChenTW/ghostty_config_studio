@@ -30,8 +30,9 @@ is remembered, and the shell commands follow it.
 ### What it is
 
 - **Theme browser** — Ghostty's 460+ built-in themes plus optional community
-  packs in one searchable list. Move the cursor and the right pane previews the
-  theme's **actual colors**, not its raw text.
+  packs in one searchable list. Move the cursor and the right pane paints a
+  sample shell session in the theme's **actual colors** — no window to open,
+  no config to change. Press `p` when you want the real thing, shaders and all.
 - **Settings editor** — all 200 Ghostty settings across 14 category pages, each
   with a description and its legal value range. Build a config by ticking
   boxes; settings with fixed choices give you a picker instead of a text field.
@@ -220,7 +221,8 @@ including the ones only learned by getting them wrong first, are in
 ### 這是什麼
 
 - **主題瀏覽器**：把 Ghostty 內建的 460+ 個主題、以及選用的社群主題包收進同一個
-  可搜尋清單，游標移到哪就即時預覽該主題的**實際顏色**，不是原始文字。
+  可搜尋清單，游標移到哪，右側就用該主題的**實際顏色**畫出一段 shell 畫面 ——
+  不用開視窗、不用改設定。想看真的（含 shader）再按 `p`。
 - **設定編輯器**：Ghostty 全部 200 個設定項目，依用途分成 14 個分類頁，每項都附
   說明與可填值範圍。用勾選的方式建立自己的設定檔——固定選項的直接從選單挑，
   不用打字。

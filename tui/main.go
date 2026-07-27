@@ -469,6 +469,81 @@ func swatchGlyph(hex string, w int) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(hex)).Render(strings.Repeat("█", w))
 }
 
+// cell paints one run of text in the theme's colours. Every segment carries
+// its own background, never an outer Render() wrapping several: a styled
+// fragment ends with a reset, so a shared outer background leaves the joins
+// unpainted — the same bug that once cut a dark bar through the title band.
+func cell(bg, fg, text string) string {
+	s := lipgloss.NewStyle().Background(lipgloss.Color(bg))
+	if fg != "" {
+		s = s.Foreground(lipgloss.Color(fg))
+	}
+	return s.Render(text)
+}
+
+// samplePanel paints a few lines of a shell session in the theme's own
+// colours, so the pane shows what the theme looks like rather than what it is
+// made of. This is the closest a text pane can get to the real thing: `p`
+// opens an actual Ghostty for the rest, and a GLSL shader needs a GPU either
+// way.
+//
+// An earlier attempt at this truncated after a handful of characters, which is
+// why the swatches below exist at all. The difference now is that every run is
+// styled separately and each row is padded to an exact display width, rather
+// than one Render() being trusted to measure already-styled content — see
+// DESIGN_NOTES, "Colored fills need every segment styled".
+func samplePanel(cs colorSet, width int) []string {
+	if cs.background == "" || cs.foreground == "" {
+		return nil
+	}
+	w := minInt(maxInt(width-4, 24), 46)
+
+	// Fall back to the foreground for any palette slot the theme left unset,
+	// so a partial palette degrades to a readable line rather than to black
+	// text on a black background.
+	p := func(i int) string {
+		if i >= 0 && i < len(cs.palette) && cs.palette[i] != "" {
+			return cs.palette[i]
+		}
+		return cs.foreground
+	}
+	cur := cs.cursor
+	if cur == "" {
+		cur = cs.foreground
+	}
+
+	// Each row is a list of runs; the renderer pads the remainder in the
+	// background colour so the panel is a solid block whatever the widths.
+	rows := [][][2]string{
+		{{"~/code", p(4)}, {" ❯ ", p(2)}, {"ls", cs.foreground}},
+		{{"src", p(4)}, {"  ", ""}, {"README.md", cs.foreground}, {"  ", ""}, {"go.mod", cs.foreground}},
+		{{"~/code", p(4)}, {" ❯ ", p(2)}, {"git status", cs.foreground}},
+		{{"● main", p(3)}, {"  ", ""}, {"✓ clean", p(2)}},
+		{{"~/code", p(4)}, {" ❯ ", p(2)}, {"█", cur}},
+	}
+
+	out := make([]string, 0, len(rows)+2)
+	blank := cell(cs.background, "", strings.Repeat(" ", w))
+	out = append(out, "  "+blank)
+	for _, row := range rows {
+		line, used := "", 0
+		for _, run := range row {
+			text, fg := run[0], run[1]
+			if lipgloss.Width(text)+used > w-2 {
+				break
+			}
+			line += cell(cs.background, fg, text)
+			used += lipgloss.Width(text)
+		}
+		// The leading and trailing pad are part of the painted block, not
+		// gaps in it, so they are drawn in the background colour too.
+		out = append(out, "  "+cell(cs.background, "", " ")+line+
+			cell(cs.background, "", strings.Repeat(" ", maxInt(w-1-used, 0))))
+	}
+	out = append(out, "  "+blank)
+	return out
+}
+
 // renderColorPreview draws the actual rendering effect as labeled color
 // swatches: BG/FG/CURSOR blocks, the 16-color palette strip, then metadata.
 // GLSL shader effects can't be rendered in a text-mode preview, so that's
@@ -488,6 +563,11 @@ func renderColorPreview(width int, cs colorSet) string {
 	}
 
 	var lines []string
+	if sample := samplePanel(cs, width); len(sample) > 0 {
+		lines = append(lines, bracket("sample"))
+		lines = append(lines, sample...)
+		lines = append(lines, "")
+	}
 	lines = append(lines, bracket("colors"))
 	lines = append(lines, "")
 	lines = append(lines, row("BG", cs.background))

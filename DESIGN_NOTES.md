@@ -199,6 +199,15 @@ reset, so concatenating `styledA + "   " + styledB` and wrapping the result in
 one outer `Render` leaves the middle spaces unstyled — it showed up as a dark
 bar cutting through the title band. Each segment carries its own background.
 
+**The in-pane sample is painted run by run, and each row padded to an exact
+width.** A first attempt at a shell-session sample in the theme's colours was
+abandoned because it truncated mid-row; the swatch strip exists because of that
+failure. What was missing was the rule directly below — a shared outer
+background leaves the joins between styled runs unpainted, and the padding on
+each side of the block has to be part of the block rather than a gap in it. Every
+row now measures the same number of display columns, which is the property the
+old version silently lost.
+
 **Foreground block glyphs beat background fills for swatches.** An early color
 preview painted a background-filled text panel and truncated unpredictably.
 Drawing `█` in the foreground color has been completely stable.
