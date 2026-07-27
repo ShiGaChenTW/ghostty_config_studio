@@ -71,8 +71,10 @@ The include still supplies size, thickening and ligatures; the direct lines
 only settle which face wins.
 
 **Ghostty reads more than one config on macOS.** Besides
-`~/.config/ghostty/config` it loads
-`~/Library/Application Support/com.mitchellh.ghostty/config*`, and that one is
+`~/.config/ghostty/config` it loads exactly two files from
+`~/Library/Application Support/com.mitchellh.ghostty/` — `config` and
+`config.ghostty`, not a `config*` glob (measured with a sandboxed
+`CFFIXED_USER_HOME`: a `config.bak-…` in that directory is not read) — and those are
 applied afterwards, so every key it sets beats the managed block. A selection
 then appears to do nothing at all with no error anywhere to explain it, which
 is why `apply_selection` names the file and the shadowed keys instead of
@@ -138,6 +140,33 @@ a config.
 disk.** Two terminals applying at once would otherwise have one roll back the
 other's snapshot.
 
+**The rollback re-validates.** Restoring a snapshot re-syncs the generated
+override include, which is the same transformation that just failed — so the
+"safe" file put back could itself be broken, while the tool reported a
+successful rollback. Found by audit, with a two-managed-block config as the
+trigger.
+
+**A config the tool cannot safely edit is refused, loudly.** Three shapes used
+to half-work: CRLF line endings matched the marker as a substring but never as a
+line, so every apply was a silent no-op that reported success; a missing end
+marker updated existing categories while dropping new ones; markers in the wrong
+order appended pairs *outside* the block, forever, breaking the project's
+central promise. All three now stop with a message that names the problem —
+the CRLF one says so specifically, since that config came from somewhere and
+the user needs to know what to fix.
+
+**Write with `cp`, never `mv`.** `mv` out of `$TMPDIR` installs mktemp's inode
+*and* its 0600 mode — on the same device too, not only across devices as an
+earlier comment here claimed. Every write therefore reset the user's config to
+0600, turned a symlinked config into a regular file (orphaning the real dotfile
+it pointed at), and silently overwrote a read-only config. This had already been
+found and fixed once in `resolve_shadow_conflicts`; the fix had not been carried
+to the four writers that touch the main config.
+
+**One lock, taken by every writer.** Two applies at once lost a write outright,
+and an ill-timed rollback could restore a snapshot predating both. `mkdir` is
+the atomic primitive available in bash 3.2.
+
 ## Preview
 
 **A preview window is a second Ghostty told to read nothing but the candidate.**
@@ -190,6 +219,21 @@ races Ghostty's one read of the file at startup.
 ANSI-styled input in some terminal environments — observed as both mid-line
 truncation and phantom extra rows (a `Height(31)` render producing 38 lines).
 Boxes here are hand-drawn, using the ANSI-aware `lipgloss.Width()` for padding.
+
+**Anything quoted out of a file we do not own is defused before it is drawn.**
+The conflicts panel prints offending lines verbatim so the user can recognise
+them — and a config value may contain escape sequences. A line holding `ESC[2J`
+cleared the screen and an OSC sequence retitled the terminal, from a panel whose
+only job is quoting a file back. Control characters are replaced with `·` at
+both the parse and the render boundary.
+
+**`truncate` bounds the input before measuring it.** It trimmed one rune at a
+time, re-measuring the whole string each pass: quadratic, 2.5s at 20k characters
+and 85s at 100k, measured. The conflicts panel truncates lines from a file this
+tool does not own and re-renders on every keystroke, so a long line froze the
+UI. No rune is narrower than one column, so everything past the first `w` runes
+can be dropped before any measuring — but only when the input carries no escape
+sequences, since a rune-wise cut through styled text can sever one.
 
 **Measure display width, not byte or rune length.** CJK cells are double-width.
 `len()` will silently misalign every layout that contains Chinese text.

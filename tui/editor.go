@@ -481,11 +481,25 @@ func indentBlock(s string, n int) string {
 // truncate cuts s to at most w display columns, appending … when cut.
 // Uses lipgloss.Width so it stays correct for CJK (double-width) text and
 // for already-styled input.
+// The loop measures the whole string on every iteration, so trimming one rune
+// at a time from a long line is quadratic: 20k characters took 2.5s and 100k
+// took 85s, measured. The conflicts panel truncates lines copied verbatim out
+// of a config file this tool does not own, and re-renders on every keystroke,
+// so "nobody would have a line that long" is not a safe assumption. No rune is
+// narrower than one column, so anything past the first w runes cannot appear
+// in the result and can be dropped before measuring anything.
+//
+// Only for input with no escape sequences in it: a rune-wise cut through
+// already-styled text can sever an escape, and those strings are ours and
+// short.
 func truncate(s string, w int) string {
 	if lipgloss.Width(s) <= w {
 		return s
 	}
 	r := []rune(s)
+	if len(r) > w && !strings.ContainsRune(s, 0x1b) {
+		r = r[:w]
+	}
 	for len(r) > 0 && lipgloss.Width(string(r)+"…") > w {
 		r = r[:len(r)-1]
 	}

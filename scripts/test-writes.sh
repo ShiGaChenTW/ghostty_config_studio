@@ -134,13 +134,77 @@ check "unrelated line survives untouched" \
   "$(grep -c '^window-padding-x = 8$' "$GHOSTTY_SUPPORT_DIR/config")" "1"
 check "the already-commented line is byte-identical" \
   "$(grep -c '^# background-opacity = 0\.3$' "$GHOSTTY_SUPPORT_DIR/config")" "1"
-check "nothing was deleted, only commented" \
-  "$(grep -c 'background-opacity = 1\.0' "$GHOSTTY_SUPPORT_DIR/config")" "1"
-check "a backup was taken" \
-  "$(ls "$GHOSTTY_STUDIO_DIR/history" 2>/dev/null | grep -c shadow || true)" "1"
-run 'resolve_shadow_conflicts' >/dev/null 2>&1
-check "resolving with nothing to do returns 1" "$?" "1"
+# Anchored, and asserting the exact prefixed form. An unanchored substring
+# count passes whether the line was commented once, twice, or not at all —
+# and a double-commented line breaks the manual undo the header promises.
+check "the line is commented exactly once, not deleted" \
+  "$(grep -c '^# ghostty-config-studio disabled: background-opacity = 1\.0$' \
+     "$GHOSTTY_SUPPORT_DIR/config")" "1"
+check "and not double-commented" \
+  "$(grep -c 'disabled: # ghostty-config-studio disabled:' "$GHOSTTY_SUPPORT_DIR/config" || true)" "0"
+
+# The backup's whole purpose is to be the way back, so compare it to what was
+# there rather than counting filenames — a zero-byte backup passes a count.
+backup=$(ls "$GHOSTTY_STUDIO_DIR/history"/*shadow* 2>/dev/null | head -1)
+check "a backup was taken" "$([ -n "$backup" ] && echo yes || echo no)" "yes"
+check "the backup restores the original byte-for-byte" \
+  "$([ -n "$backup" ] && diff -q "$SANDBOX/shadow-before" "$backup" >/dev/null && echo yes || echo no)" "yes"
+
+# Returning 1 is not enough: the function returns 1 for five different
+# reasons, including hard failures. Assert it declined for the right one and
+# left the file alone.
+before=$(md5 -q "$GHOSTTY_SUPPORT_DIR/config")
+out=$(run 'resolve_shadow_conflicts' 2>&1); rc=$?
+check "resolving with nothing to do returns 1" "$rc" "1"
+check "and says that is why" \
+  "$(printf '%s' "$out" | grep -c '沒有需要處理\|No shadow conflicts\|nothing to' || true)" "1"
+check "and wrote nothing" "$(md5 -q "$GHOSTTY_SUPPORT_DIR/config")" "$before"
 unset GHOSTTY_SUPPORT_DIR
+
+echo
+echo "== the config file itself survives being written to =="
+# Every one of these is a real defect found by audit: mv from $TMPDIR installs
+# mktemp's 0600 mode and its inode, so a write reset permissions and turned a
+# symlinked config into a regular file, orphaning the real one.
+rm -rf "$GHOSTTY_DIR"; mkdir -p "$GHOSTTY_DIR"
+printf 'font-size = 99\n' > "$GHOSTTY_DIR/config"; chmod 644 "$GHOSTTY_DIR/config"
+run 'apply_selection opacity 0.7 raw "" background-opacity' >/dev/null 2>&1
+check "an apply preserves the file mode" "$(stat -f %Sp "$GHOSTTY_DIR/config")" "-rw-r--r--"
+
+rm -rf "$GHOSTTY_DIR"; mkdir -p "$GHOSTTY_DIR"
+printf 'font-size = 99\n' > "$SANDBOX/real-config"
+ln -s "$SANDBOX/real-config" "$GHOSTTY_DIR/config"
+run 'apply_selection opacity 0.7 raw "" background-opacity' >/dev/null 2>&1
+check "a symlinked config stays a symlink" \
+  "$([ -L "$GHOSTTY_DIR/config" ] && echo yes || echo no)" "yes"
+check "and the file it points at is what changed" \
+  "$(grep -c 'background-opacity' "$SANDBOX/real-config" || true)" "1"
+
+echo
+echo "== a config the tool cannot safely edit is refused, not half-written =="
+# CRLF line endings used to match the marker as a substring but never as a
+# line, so every apply was a silent no-op that reported success.
+rm -rf "$GHOSTTY_DIR"; mkdir -p "$GHOSTTY_DIR"
+printf '# >>> ghostty-picker managed >>>\r\n# category:opacity\r\nbackground-opacity = 1\r\n# <<< ghostty-picker managed <<<\r\n' \
+  > "$GHOSTTY_DIR/config"
+before=$(md5 -q "$GHOSTTY_DIR/config")
+run 'apply_selection opacity 0.8 raw "" background-opacity' >/dev/null 2>&1
+check "a CRLF config is refused, not silently ignored" "$?" "1"
+check "and is left untouched" "$(md5 -q "$GHOSTTY_DIR/config")" "$before"
+
+# Two managed blocks made the override include be emitted into both, which
+# Ghostty rejects as a cycle — taking the whole config down with it.
+rm -rf "$GHOSTTY_DIR"; mkdir -p "$GHOSTTY_DIR"
+{ printf '# >>> ghostty-picker managed >>>\n# category:theme\ntheme = Dracula\n# <<< ghostty-picker managed <<<\n'
+  printf '# >>> ghostty-picker managed >>>\n# category:font\nfont-size = 14\n# <<< ghostty-picker managed <<<\n'; } \
+  > "$GHOSTTY_DIR/config"
+run 'apply_selection opacity 0.9 raw "" background-opacity' >/dev/null 2>&1
+if [ -n "$GHOSTTY_BIN" ]; then
+  "$GHOSTTY_BIN" +validate-config --config-file="$GHOSTTY_DIR/config" >/dev/null 2>&1
+  check "a two-block config never ends up invalid" "$?" "0"
+else
+  echo "  SKIP  no Ghostty binary — cannot validate the result"
+fi
 
 echo
 echo "== the portability gate still passes =="

@@ -1060,6 +1060,22 @@ type shadowConflict struct {
 // the user reaches for when their config is already misbehaving, and a format
 // drift should cost them one row rather than the screen that explains the
 // problem.
+// inert defuses a field before it is ever drawn. These come out of a config
+// file this tool does not own, and are rendered verbatim so the user can
+// recognise the line — but a config value may contain escape sequences, and
+// they passed straight through: a line holding ESC[2J cleared the screen and
+// an OSC sequence retitled the terminal, from a panel that is only supposed to
+// be quoting a file back. Control characters are replaced rather than dropped
+// so the row still shows that something is there.
+func inert(s string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r == 0x7f || (r < 0x20 && r != '\t') {
+			return '·'
+		}
+		return r
+	}, s))
+}
+
 func parseShadowRecords(out string) []shadowConflict {
 	var found []shadowConflict
 	for _, raw := range strings.Split(out, "\n") {
@@ -1072,10 +1088,10 @@ func parseShadowRecords(out string) []shadowConflict {
 			continue
 		}
 		c := shadowConflict{
-			file: strings.TrimSpace(f[0]),
-			line: strings.TrimSpace(f[1]),
-			key:  strings.TrimSpace(f[2]),
-			text: strings.TrimSpace(f[3]),
+			file: inert(f[0]),
+			line: inert(f[1]),
+			key:  inert(f[2]),
+			text: inert(f[3]),
 		}
 		// A record naming neither a file nor a key describes nothing that can
 		// be shown or fixed.
@@ -2124,13 +2140,16 @@ func elidePath(p string, w int) string {
 // padRight counts display columns — a rune count would leave every row after a
 // CJK label ragged.
 func conflictRow(c shadowConflict, w int) string {
-	num := padRight(truncate(c.line, 5), 6)
+	// inert() again at the render boundary, not only on ingest: this is the
+	// point where a control character would reach the terminal, and it should
+	// stay safe for any future caller that builds a record some other way.
+	num := padRight(truncate(inert(c.line), 5), 6)
 	keyW := minInt(maxInt(w/3, 10), 24)
-	keyCol := padRight(truncate(c.key, keyW), keyW+2)
+	keyCol := padRight(truncate(inert(c.key), keyW), keyW+2)
 	textW := maxInt(w-2-lipgloss.Width(num)-lipgloss.Width(keyCol), 8)
 	return helpStyle.Render("  "+num) +
 		phosphorStyle.Render(keyCol) +
-		errorStyle.Render(truncate(c.text, textW))
+		errorStyle.Render(truncate(inert(c.text), textW))
 }
 
 // conflictsPanel lists what is overriding the managed block. An empty result

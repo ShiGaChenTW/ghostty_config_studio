@@ -37,6 +37,164 @@ t() { if [ "$(studio_lang)" = "en" ]; then echo "$2"; else echo "$1"; fi; }
 BEGIN_MARK="# >>> ghostty-picker managed >>>"
 END_MARK="# <<< ghostty-picker managed <<<"
 
+# One writer at a time. Two applies racing each other is not theoretical — the
+# TUI shells out to apply_selection per selection and the whole config is a
+# read-modify-write, which measured five lost writes out of five, both
+# processes reporting success while only one survived. Worse, the loser's
+# validation then failed against a file the winner had already replaced and
+# rolled back to a snapshot predating both, wiping the managed block entirely.
+#
+# The lock IS a symlink whose target is the holder's pid. macOS ships no
+# flock(1), and the obvious `mkdir` lock needs a second step to record who holds
+# it — a waiter that looks in the gap between the mkdir and the pid write finds
+# an ownerless lock, calls it abandoned, deletes it and takes a lock somebody
+# already has. Measured: two lost writes in twenty-five with that shape, even
+# with the staleness check held off for a full second. symlink(2) is one call
+# that both tests and sets and carries the pid in the same operation, so the
+# gap does not exist.
+#
+# The pid is what makes a killed holder recoverable: ^C during an apply must
+# not wedge the tool forever, so a lock whose pid is gone is reclaimed rather
+# than waited on. Re-entrant by depth count, because clear_categories_under
+# calls clear_category in a loop and both take it.
+LOCK_LINK="$STUDIO_DIR/.write-lock"
+_LOCK_DEPTH=0
+
+_lock_acquire() {
+  local tries holder
+  if [ "$_LOCK_DEPTH" -gt 0 ]; then
+    _LOCK_DEPTH=$((_LOCK_DEPTH + 1))
+    return 0
+  fi
+  mkdir -p "$STUDIO_DIR" 2>/dev/null || true
+  tries=0
+  while ! ln -s "$$" "$LOCK_LINK" 2>/dev/null; do
+    tries=$((tries + 1))
+    if [ "$tries" -gt 300 ]; then
+      t "另一個 ghostty-config-studio 正在寫入設定檔，等待逾時，沒有任何變更。" \
+        "Another ghostty-config-studio is writing the config; timed out waiting, nothing was changed." >&2
+      return 1
+    fi
+    holder="$(readlink "$LOCK_LINK" 2>/dev/null)" || holder=""
+    # Empty means it was released between the failed ln and this read — just
+    # go round again. kill -0 also fails for a live process owned by somebody
+    # else; this is a single-user dotfile tool, so counting that as abandoned
+    # is the right trade. Refusing forever on a lock nobody can prove is alive
+    # is the worse failure.
+    if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+      rm -f "$LOCK_LINK" 2>/dev/null || true
+      continue
+    fi
+    sleep 0.1
+  done
+  _LOCK_DEPTH=1
+  return 0
+}
+
+_lock_release() {
+  [ "$_LOCK_DEPTH" -gt 0 ] || return 0
+  _LOCK_DEPTH=$((_LOCK_DEPTH - 1))
+  # Only ever drop our own: a lock somebody else has already reclaimed after
+  # deciding we were gone is theirs, not ours to delete.
+  if [ "$_LOCK_DEPTH" -eq 0 ] && [ "$(readlink "$LOCK_LINK" 2>/dev/null)" = "$$" ]; then
+    rm -f "$LOCK_LINK" 2>/dev/null || true
+  fi
+  return 0
+}
+
+# This file is sourced, so the trap belongs to the entry-point script. Every
+# entry point sources it before doing anything else. The lock has to survive an
+# errexit death or a ^C, which is precisely when it would otherwise be left
+# behind for the next run to reclaim.
+_lock_release_all() { _LOCK_DEPTH=1; _lock_release; }
+trap _lock_release_all EXIT
+
+# Installing a rewritten config with `mv` from mktemp replaces the destination
+# INODE, so the file comes back as mktemp's 0600, a symlinked config is turned
+# into a regular file (leaving the dotfiles copy it pointed at silently stale),
+# and a config the user deliberately made read-only is overwritten without a
+# word. Measured on a same-device rename, so it is the inode swap that does it,
+# not mv's cross-device copy fallback. Copying the bytes through the existing
+# file keeps its mode, its owner and its symlink, and fails honestly when it is
+# not writable.
+_install_file() {
+  local src="$1" dest="$2"
+  cp "$src" "$dest" 2>/dev/null && return 0
+  t "無法寫入 ${dest}（唯讀或權限不足），沒有任何變更。" \
+    "Could not write ${dest} (read-only or not permitted); nothing was changed." >&2
+  return 1
+}
+
+# The managed block's shape, as one word. Every writer below compares whole
+# lines against the markers, so anything that stops a marker line comparing
+# equal used to make the write silently succeed and do nothing: a CR left by a
+# Windows editor, a BEGIN with no END. With the pair in the wrong order it was
+# worse than nothing — the directive landed OUTSIDE the block and a fresh copy
+# piled up on every apply, in the one region this tool promises never to touch.
+# Classify it once, up front, so the writers can refuse instead of half-working.
+_marker_fault() {
+  local config="$1"
+  [ -f "$config" ] || { echo none; return 0; }
+  awk -v b="$BEGIN_MARK" -v e="$END_MARK" '
+    {
+      line = $0
+      cr = sub(/\r$/, "", line)
+      if (line == b) { begins++; if (begins == 1) first_begin = NR; if (cr) crlf = 1 }
+      else if (line == e) { ends++; if (ends == 1) first_end = NR; if (cr) crlf = 1 }
+    }
+    END {
+      if (begins == 0 && ends == 0) { print "none"; exit }
+      if (crlf) { print "crlf"; exit }
+      if (begins == 0) { print "no-begin"; exit }
+      if (ends == 0) { print "no-end"; exit }
+      if (first_end < first_begin) { print "reversed"; exit }
+      if (begins > 1 || ends > 1) { print "duplicate"; exit }
+      print "ok"
+    }' "$config"
+}
+
+# Refuses, and says why, for every shape the writers cannot represent. Returns
+# 0 only for the two they can: a well-formed pair, and no block at all — which
+# is what a first run looks like.
+_require_sane_markers() {
+  local fault
+  fault="$(_marker_fault "$GHOSTTY_CONFIG")"
+  case "$fault" in
+    ok|none) return 0 ;;
+    crlf)
+      t "設定檔的管理標記行以 CRLF（Windows 換行）結尾，這個工具比對不到它們。" \
+        "The managed markers in your config end with CRLF (Windows line endings), so this tool cannot match them." >&2
+      t "先轉成 LF 再試一次：  tr -d '\r' < \"${GHOSTTY_CONFIG}\" > /tmp/g.lf && mv /tmp/g.lf \"${GHOSTTY_CONFIG}\"" \
+        "Convert it to LF first:  tr -d '\r' < \"${GHOSTTY_CONFIG}\" > /tmp/g.lf && mv /tmp/g.lf \"${GHOSTTY_CONFIG}\"" >&2
+      ;;
+    no-end)
+      t "設定檔裡有開始標記卻沒有結束標記，工具不敢猜這個區塊到哪裡結束。" \
+        "Your config has the opening marker but no closing one; this tool will not guess where the block ends." >&2
+      t "請在管理區塊的最後補上這一行：  ${END_MARK}" \
+        "Add this line at the end of the managed block:  ${END_MARK}" >&2
+      ;;
+    no-begin)
+      t "設定檔裡有結束標記卻沒有開始標記。" \
+        "Your config has the closing marker but no opening one." >&2
+      t "請在管理區塊的最前面補上這一行：  ${BEGIN_MARK}" \
+        "Add this line at the start of the managed block:  ${BEGIN_MARK}" >&2
+      ;;
+    reversed)
+      t "設定檔裡的結束標記出現在開始標記之前，順序反了。" \
+        "The closing marker comes before the opening one in your config; the pair is the wrong way round." >&2
+      t "把這兩行調換成正確順序後再試一次。" \
+        "Swap those two lines back into the right order and try again." >&2
+      ;;
+    duplicate)
+      t "設定檔裡有一個以上的管理區塊。Ghostty 會讓後面的區塊蓋過前面的，所以工具改哪一個都會被另一個蓋掉。" \
+        "Your config has more than one managed block. Ghostty lets the later one win, so whichever this tool edited would be overridden by the other." >&2
+      t "請只保留一個管理區塊後再試一次。" \
+        "Keep exactly one managed block and try again." >&2
+      ;;
+  esac
+  return 1
+}
+
 # Category tags live on their OWN comment line, directly above their
 # `config-file = <path>` line — never trailing on the same line. Ghostty's
 # `config-file` directive takes the rest of the line as the literal path with
@@ -110,14 +268,27 @@ _LAST_SNAPSHOT=""
 # A ".missing" snapshot records that there was no config at all, which is not
 # the same state as an empty one: restoring it has to delete the file, because
 # leaving an empty config behind still counts as a config to Ghostty.
-_restore_snapshot() {
-  local snapshot="$1" consume="${2:-0}"
+_restore_snapshot_bytes() {
+  local snapshot="$1"
   [ -n "$snapshot" ] && [ -e "$snapshot" ] || return 1
   mkdir -p "$GHOSTTY_DIR"
   case "$snapshot" in
     *.missing) rm -f "$GHOSTTY_CONFIG" ;;
-    *)         cp "$snapshot" "$GHOSTTY_CONFIG" ;;
+    *)         _install_file "$snapshot" "$GHOSTTY_CONFIG" || return 1 ;;
   esac
+  return 0
+}
+
+# Putting the bytes back is only half of it: the generated override include is
+# derived from the block, so restoring an older block without regenerating the
+# include would leave Ghostty resolving the newer values through a file the
+# restored config still points at. Hence _sync_overrides here — undo needs it.
+# The rollback path in apply_selection needs the bare _restore_snapshot_bytes
+# as a fallback, because _sync_overrides is also the step that can turn a good
+# snapshot straight back into the invalid file it was meant to undo.
+_restore_snapshot() {
+  local snapshot="$1" consume="${2:-0}"
+  _restore_snapshot_bytes "$snapshot" || return 1
   [ "$consume" = "1" ] && rm -f "$snapshot"
   _sync_overrides
   return 0
@@ -174,7 +345,8 @@ snapshot_config() {
 # Prints one line and one line only on success: the TUI puts it straight into a
 # single-row status bar, so a second line would push the layout out of shape.
 undo_last_apply() {
-  local latest base
+  local latest base rc
+  _lock_acquire || return 1
   latest=""
   if [ -d "$HISTORY_DIR" ]; then
     # Snapshots only: a resolve_shadow_conflicts .bak sorts newest and would
@@ -189,19 +361,24 @@ undo_last_apply() {
   fi
   if [ -z "$latest" ]; then
     t "沒有可以還原的紀錄。" "Nothing to undo." >&2
+    _lock_release
     return 1
   fi
   base="$HISTORY_DIR/$latest"
   if ! _restore_snapshot "$base" 1; then
     t "還原失敗：${latest}" "Could not restore: ${latest}" >&2
+    _lock_release
     return 1
   fi
+  rc=0
   case "$latest" in
     *.missing) t "已還原：套用前沒有設定檔，已將它移除。" \
                  "Restored: there was no config before this, removed it." ;;
     *)         t "已還原 ${latest%.conf} 當時的設定檔。" \
                  "Restored the config as it was at ${latest%.conf}." ;;
   esac
+  _lock_release
+  return "$rc"
 }
 
 validate_config() {
@@ -240,11 +417,19 @@ _PREAMBLE_RE="^font-family[a-z-]* ="
 # Prints the value currently recorded for a category (empty if none set).
 # Strips generically ("<anything> = ") rather than a fixed list of known
 # directive names, since kind=raw's key varies per category.
+#
+# `done` here and in every marker-walking program below: a second managed block
+# used to be walked as if it were a continuation of the first, which had the
+# rewriters emit the override include into both and left Ghostty reporting
+# `cycle detected` — the whole-config fallback. The writers refuse that shape
+# outright now; the flag is what makes every reader agree that only the first
+# block is ours even if one slips through.
 current_path_for() {
   local category="$1"
   [ -f "$GHOSTTY_CONFIG" ] || return 0
-  awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" -v pre="$_PREAMBLE_RE" '
-    $0==b {inb=1; next} $0==e {inb=0; next}
+  GCS_TAG="# category:$category" awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v pre="$_PREAMBLE_RE" '
+    BEGIN {tag=ENVIRON["GCS_TAG"]}
+    $0==b {if (!done) inb=1; next} $0==e {if (inb) done=1; inb=0; next}
     inb && $0==tag {want=1; next}
     inb && want {
       if ($0 ~ pre) next
@@ -255,12 +440,15 @@ current_path_for() {
 _override_file_path() { echo "$STUDIO_DIR/generated/explicit-overrides.conf"; }
 
 _replace_if_changed() {
-  local dest="$1" src="$2"
+  local dest="$1" src="$2" rc
   if [ -e "$dest" ] && cmp -s "$dest" "$src"; then
     rm -f "$src"
-  else
-    mv "$src" "$dest"
+    return 0
   fi
+  rc=0
+  _install_file "$src" "$dest" || rc=1
+  rm -f "$src"
+  return "$rc"
 }
 
 _write_override_header() {
@@ -291,8 +479,8 @@ _raw_lines_from_block() {
              k == "font-family-italic" || k == "font-family-bold-italic" || \
              k == "palette" || k == "keybind" || k == "font-feature"
     }
-    $0==b {inb=1; next}
-    $0==e {inb=0; next}
+    $0==b {if (!done) inb=1; next}
+    $0==e {if (inb) done=1; inb=0; next}
     inb && /^# category:/ { cat=substr($0, 12); next }
     inb && cat != "" {
       if ($0 ~ pre) next
@@ -307,13 +495,20 @@ _raw_lines_from_block() {
   ' "$GHOSTTY_CONFIG"
 }
 
+# The include line goes through the environment, not `awk -v`: -v runs escape
+# processing over its value, so a backslash anywhere in $STUDIO_DIR came out
+# the other side collapsed — `stu\dio` written as `studio`. That is a
+# config-file pointing at a path that does not exist, which is the silent
+# whole-config fallback this project exists to avoid.
 _rewrite_block_with_overrides() {
   local out="$1" include_line="${2:-}"
-  awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:_overrides" -v line="$include_line" -v pre="$_PREAMBLE_RE" '
-    $0==b {print; inb=1; next}
+  GCS_OVERRIDE_LINE="$include_line" \
+  awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:_overrides" -v pre="$_PREAMBLE_RE" '
+    BEGIN {line=ENVIRON["GCS_OVERRIDE_LINE"]}
+    $0==b {print; if (!done) inb=1; next}
     $0==e {
       if (inb && line != "") { print tag; print line }
-      print; inb=0; next
+      print; if (inb) done=1; inb=0; next
     }
     inb {
       if ($0==tag) { skip=1; next }
@@ -326,26 +521,38 @@ _rewrite_block_with_overrides() {
 
 _managed_directives_without_overrides() {
   awk -v b="$BEGIN_MARK" -v e="$END_MARK" '
-    $0==b {inb=1; next}
-    $0==e {inb=0; next}
+    $0==b {if (!done) inb=1; next}
+    $0==e {if (inb) done=1; inb=0; next}
     inb && $0=="# category:_overrides" { skip=1; next }
     inb && skip { skip=0; next }
     inb && $0 !~ /^# category:/ { print }
   ' "$GHOSTTY_CONFIG"
 }
 
+# Keyed on the whole destination path, not just its basename. Two presets named
+# the same in different directories used to share one sidecar, so saving the
+# second silently rewrote the raw settings the first one applies. cksum rather
+# than a hash tool because it is the one that is guaranteed present.
 _preset_sidecar_path() {
-  local dest="$1" base
+  local dest="$1" base tag
   base="${dest##*/}"
   base="${base%.conf}"
-  echo "$STUDIO_DIR/generated/presets/${base}.conf"
+  tag="$(printf '%s' "$dest" | cksum | awk '{print $1}')"
+  echo "$STUDIO_DIR/generated/presets/${base}-${tag}.conf"
 }
 
 _sync_overrides() {
-  local override_path raw_f cfg_tmp gen_tmp
+  local override_path raw_f cfg_tmp gen_tmp fault rc
   override_path="$(_override_file_path)"
   [ -f "$GHOSTTY_CONFIG" ] || { rm -f "$override_path"; return 0; }
-  grep -qF "$BEGIN_MARK" "$GHOSTTY_CONFIG" || { rm -f "$override_path"; return 0; }
+  fault="$(_marker_fault "$GHOSTTY_CONFIG")"
+  [ "$fault" = "none" ] && { rm -f "$override_path"; return 0; }
+  # A block shape the rewriter cannot represent. Leave both the config and the
+  # generated include exactly as they are rather than rewriting half of one.
+  # apply_selection refuses these up front, so the only way here is the undo
+  # path — where the user is entitled to restore a config this tool would not
+  # itself have written, and must not have it silently mangled on the way back.
+  [ "$fault" = "ok" ] || return 0
 
   raw_f="$(mktemp)"
   _raw_lines_from_block > "$raw_f"
@@ -353,21 +560,28 @@ _sync_overrides() {
   cfg_tmp="$(mktemp)"
   if [ ! -s "$raw_f" ]; then
     _rewrite_block_with_overrides "$cfg_tmp"
-    _replace_if_changed "$GHOSTTY_CONFIG" "$cfg_tmp"
+    rc=0
+    _replace_if_changed "$GHOSTTY_CONFIG" "$cfg_tmp" || rc=1
     rm -f "$raw_f"
-    rm -f "$override_path"
-    return 0
+    # Only after the reference is gone from the config. Deleting the include
+    # first would leave a window where the config points at a file that is not
+    # there, and a Ghostty reading it in that window loses the whole config.
+    [ "$rc" -eq 0 ] && rm -f "$override_path"
+    return "$rc"
   fi
 
   mkdir -p "${override_path%/*}"
   gen_tmp="$(mktemp)"
   _write_override_header "$gen_tmp" active
   cat "$raw_f" >> "$gen_tmp"
-  _replace_if_changed "$override_path" "$gen_tmp"
+  rm -f "$raw_f"
+  # The include file has to exist before the config names it, for the same
+  # reason.
+  _replace_if_changed "$override_path" "$gen_tmp" || return 1
 
   _rewrite_block_with_overrides "$cfg_tmp" "config-file = $override_path"
-  _replace_if_changed "$GHOSTTY_CONFIG" "$cfg_tmp"
-  rm -f "$raw_f"
+  _replace_if_changed "$GHOSTTY_CONFIG" "$cfg_tmp" || return 1
+  return 0
 }
 
 # Replaces (or creates) one category's tag+directive pair inside the managed
@@ -380,14 +594,20 @@ _sync_overrides() {
 # Ghostty fail to open it and silently fall back to defaults for the whole
 # config (the same failure mode documented in DESIGN_NOTES.md).
 clear_category() {
-  local category="$1"
+  local category="$1" tmp rc
   [ -f "$GHOSTTY_CONFIG" ] || return 0
-  grep -qF "$BEGIN_MARK" "$GHOSTTY_CONFIG" || return 0
-  local tmp
+  _lock_acquire || return 1
+  if [ "$(_marker_fault "$GHOSTTY_CONFIG")" != "ok" ]; then
+    _require_sane_markers; rc=$?
+    _lock_release
+    return "$rc"
+  fi
   tmp="$(mktemp)"
-  awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" -v pre="$_PREAMBLE_RE" '
-    $0==b {print; inb=1; next}
-    $0==e {print; inb=0; next}
+  GCS_TAG="# category:$category" \
+  awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v pre="$_PREAMBLE_RE" '
+    BEGIN {tag=ENVIRON["GCS_TAG"]}
+    $0==b {print; if (!done) inb=1; next}
+    $0==e {print; if (inb) done=1; inb=0; next}
     inb {
       if ($0==tag) { skip=1; next }
       if (skip) { if ($0 ~ pre) next; skip=0; next }
@@ -395,27 +615,62 @@ clear_category() {
     }
     { print }
   ' "$GHOSTTY_CONFIG" > "$tmp"
-  mv "$tmp" "$GHOSTTY_CONFIG"
-  _sync_overrides
+  rc=0
+  _replace_if_changed "$GHOSTTY_CONFIG" "$tmp" || rc=1
+  [ "$rc" -eq 0 ] && { _sync_overrides || rc=1; }
+  _lock_release
+  return "$rc"
 }
 
 # clear_categories_under PREFIX — clears every managed-block category whose
 # value points inside PREFIX. Used before deleting asset files: a reference
 # left pointing at a removed file makes Ghostty fail to open the include and
 # fall back to defaults for the whole config.
+
+# Each managed category and the value it currently points at, as
+# `CATEGORY<US>VALUE`. <US> is ASCII 0x1F for the same reason the conflict
+# records use it: a Ghostty path may legally contain every printable candidate
+# for a separator, and a control character cannot.
+_managed_category_values() {
+  awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v pre="$_PREAMBLE_RE" '
+    $0==b {if (!done) inb=1; next}
+    $0==e {if (inb) done=1; inb=0; next}
+    inb && /^# category:/ { c=substr($0, 12); next }
+    inb && c != "" {
+      if ($0 ~ pre) next
+      v=$0; sub(/^[a-zA-Z0-9_-]+[[:space:]]*=[[:space:]]*/, "", v)
+      printf "%s\037%s\n", c, v
+      c=""
+    }
+  ' "$GHOSTTY_CONFIG"
+}
+
 clear_categories_under() {
-  local prefix="$1"
+  local prefix="$1" us cat value
   [ -f "$GHOSTTY_CONFIG" ] || return 0
-  local cat
-  for cat in $(awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v p="$prefix" '
-      $0==b {inb=1; next} $0==e {inb=0; next}
-      inb && /^# category:/ { c=substr($0, 12); next }
-      inb && c != "" && index($0, p) { print c; c="" }
-    ' "$GHOSTTY_CONFIG"); do
-    clear_category "$cat"
+  [ "$(_marker_fault "$GHOSTTY_CONFIG")" = "ok" ] || return 0
+  us="$(printf '\037')"
+  _lock_acquire || return 1
+  while IFS="$us" read -r cat value; do
+    [ -n "$cat" ] || continue
+    case "$value" in
+      *"$prefix"*) ;;
+      *)
+        # A saved custom preset is a file of its own that names the pack file
+        # from inside itself, so the managed block's line never mentions the
+        # prefix at all. Removing a pack under one of those left the preset —
+        # still applied — pointing at a file that no longer existed, and
+        # Ghostty answers a missing config-file by abandoning the entire
+        # config. One level of include is as deep as save_current_as ever
+        # writes, so one level is what this follows.
+        [ -f "$value" ] && grep -qF "$prefix" "$value" || continue
+        ;;
+    esac
+    clear_category "$cat" || continue
     t "  （已從 Ghostty 設定移除仍在套用的 ${cat}）" \
-      "  (removed the still-applied $cat from your Ghostty config)"
-  done
+      "  (removed the still-applied ${cat} from your Ghostty config)"
+  done < <(_managed_category_values)
+  _lock_release
 }
 
 # preview_directive VALUE KIND KEY [SHADER_SRC] — the directive lines a
@@ -437,18 +692,24 @@ preview_directive() {
 
 set_path_for() {
   local category="$1" value="$2" kind="${3:-file}" key="${4:-}"
+  local tmp dir_f rc
+  # Lock first: the branch below trusts _marker_fault, so the check has to
+  # happen where a concurrent writer cannot change the answer underneath it.
+  _lock_acquire || return 1
+  _require_sane_markers || { _lock_release; return 1; }
   mkdir -p "$GHOSTTY_DIR"
-  local tmp dir_f
   tmp="$(mktemp)"; dir_f="$(mktemp)"
   _write_directive "$dir_f" "$value" "$kind" "$key"
 
-  if [ -f "$GHOSTTY_CONFIG" ] && grep -qF "$BEGIN_MARK" "$GHOSTTY_CONFIG"; then
-    awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" -v cfgfile="$dir_f" -v pre="$_PREAMBLE_RE" '
+  if [ "$(_marker_fault "$GHOSTTY_CONFIG")" = "ok" ]; then
+    GCS_TAG="# category:$category" GCS_DIRFILE="$dir_f" \
+    awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v pre="$_PREAMBLE_RE" '
+      BEGIN {tag=ENVIRON["GCS_TAG"]; cfgfile=ENVIRON["GCS_DIRFILE"]}
       function emit(   l) { while ((getline l < cfgfile) > 0) print l; close(cfgfile) }
-      $0==b {print; inb=1; next}
+      $0==b {print; if (!done) inb=1; next}
       $0==e {
-        if (!wrote) { print tag; emit() }
-        print; inb=0; next
+        if (inb && !wrote) { print tag; emit() }
+        print; if (inb) done=1; inb=0; next
       }
       inb {
         if ($0==tag) { print tag; emit(); wrote=1; skip=1; next }
@@ -462,8 +723,12 @@ set_path_for() {
     { [ -s "$tmp" ] && echo; echo "$BEGIN_MARK"; echo "# category:$category"; cat "$dir_f"; echo "$END_MARK"; } >> "$tmp"
   fi
   rm -f "$dir_f"
-  mv "$tmp" "$GHOSTTY_CONFIG"
-  _sync_overrides
+  rc=0
+  _install_file "$tmp" "$GHOSTTY_CONFIG" || rc=1
+  rm -f "$tmp"
+  [ "$rc" -eq 0 ] && { _sync_overrides || rc=1; }
+  _lock_release
+  return "$rc"
 }
 
 # Presets are complete standalone configs (theme+font+cursor already combined) —
@@ -471,16 +736,22 @@ set_path_for() {
 # pair alongside a possibly-conflicting leftover theme/font pair.
 set_solo_path_for() {
   local category="$1" value="$2" kind="${3:-file}" key="${4:-}"
+  local tmp dir_f rc
+  # Lock first: the branch below trusts _marker_fault, so the check has to
+  # happen where a concurrent writer cannot change the answer underneath it.
+  _lock_acquire || return 1
+  _require_sane_markers || { _lock_release; return 1; }
   mkdir -p "$GHOSTTY_DIR"
-  local tmp dir_f
   tmp="$(mktemp)"; dir_f="$(mktemp)"
   _write_directive "$dir_f" "$value" "$kind" "$key"
 
-  if [ -f "$GHOSTTY_CONFIG" ] && grep -qF "$BEGIN_MARK" "$GHOSTTY_CONFIG"; then
-    awk -v b="$BEGIN_MARK" -v e="$END_MARK" -v tag="# category:$category" -v cfgfile="$dir_f" '
+  if [ "$(_marker_fault "$GHOSTTY_CONFIG")" = "ok" ]; then
+    GCS_TAG="# category:$category" GCS_DIRFILE="$dir_f" \
+    awk -v b="$BEGIN_MARK" -v e="$END_MARK" '
+      BEGIN {tag=ENVIRON["GCS_TAG"]; cfgfile=ENVIRON["GCS_DIRFILE"]}
       function emit(   l) { while ((getline l < cfgfile) > 0) print l; close(cfgfile) }
-      $0==b {print; print tag; emit(); inb=1; next}
-      $0==e {print; inb=0; next}
+      $0==b {print; if (done) next; print tag; emit(); inb=1; next}
+      $0==e {print; if (inb) done=1; inb=0; next}
       inb {next}
       {print}
     ' "$GHOSTTY_CONFIG" > "$tmp"
@@ -489,8 +760,12 @@ set_solo_path_for() {
     { [ -s "$tmp" ] && echo; echo "$BEGIN_MARK"; echo "# category:$category"; cat "$dir_f"; echo "$END_MARK"; } >> "$tmp"
   fi
   rm -f "$dir_f"
-  mv "$tmp" "$GHOSTTY_CONFIG"
-  _sync_overrides
+  rc=0
+  _install_file "$tmp" "$GHOSTTY_CONFIG" || rc=1
+  rm -f "$tmp"
+  [ "$rc" -eq 0 ] && { _sync_overrides || rc=1; }
+  _lock_release
+  return "$rc"
 }
 
 # apply_selection CATEGORY VALUE KIND [SHADER_SRC] [KEY]
@@ -499,9 +774,13 @@ set_solo_path_for() {
 # `bash -c 'source lib/menu.sh; apply_selection ...'` instead of duplicating
 # the managed-block logic in Go. KEY is only needed for kind=raw.
 # Ghostty reads more than one config on macOS. Besides ~/.config/ghostty/config
-# it also loads ~/Library/Application Support/com.mitchellh.ghostty/config*,
-# and that one is applied AFTER, so every key it sets beats whatever we just
-# wrote. A selection then appears to do nothing at all, with no error anywhere
+# it also loads two files from ~/Library/Application Support/com.mitchellh.ghostty:
+# `config` and `config.ghostty`, and those are applied AFTER, so every key they
+# set beats whatever we just wrote. NOT a `config*` glob, whatever an earlier
+# version of this comment claimed — measured with a sandboxed CFFIXED_USER_HOME,
+# a `config.bak-…` sitting in that directory is not read at all, which is worth
+# knowing before anyone "fixes" the loop below into a wildcard and starts
+# reporting conflicts against backup files. A selection then appears to do nothing at all, with no error anywhere
 # to explain it. Rather than succeed silently, say which file is winning and
 # over which keys.
 _shadow_configs() {
@@ -522,8 +801,13 @@ _keys_decided_by() {
     shader) echo "custom-shader" ;;
     *)
       [ -f "$value" ] || return 0
+      # `tr -d ' ='` left a TAB attached to the key when the line was
+      # tab-indented, so `\tcursor-style` never matched the plain
+      # `cursor-style` in the shadowing config and the conflict went
+      # unreported — the selection then silently did nothing, which is the
+      # exact failure warn_if_shadowed exists to catch.
       sed -e 's/#.*//' "$value" | grep -oE '^[[:space:]]*[a-z0-9-]+[[:space:]]*=' \
-        | tr -d ' =' | sort -u
+        | tr -d '[:space:]=' | sort -u
       if grep -qE '^[[:space:]]*theme[[:space:]]*=' "$value"; then
         printf 'background\nforeground\npalette\n'
       fi
@@ -655,6 +939,17 @@ list_shadow_conflicts() {
 # prefixes lines it already reported as conflicting, and leaves every other byte
 # of the file where it was.
 resolve_shadow_conflicts() {
+  local rc
+  _lock_acquire || return 1
+  rc=0
+  _resolve_shadow_conflicts_locked || rc=$?
+  _lock_release
+  return "$rc"
+}
+
+# The body, split out only so the many honest early returns below do not each
+# have to remember to drop the lock.
+_resolve_shadow_conflicts_locked() {
   local conflicts files backups
   local disabled_count seen existing
   local f lineno key line
@@ -784,16 +1079,19 @@ EOF
     if [ -n "$(tail -c1 "${f}")" ]; then
       has_trailing_newline=0
     fi
+    # The headers go through the environment rather than `awk -v`: -v runs
+    # escape processing over its value, and header3 carries a filesystem path,
+    # so a backslash anywhere in $HISTORY_DIR would be eaten and the file would
+    # end up naming a backup that is not where it says.
+    GCS_H1="${header1}" GCS_H2="${header2}" GCS_H3="${header3}" GCS_H4="${header4}" \
     awk \
       -v first_line="${first_lineno}" \
       -v disabled_lines="${line_numbers}" \
-      -v header1="${header1}" \
-      -v header2="${header2}" \
-      -v header3="${header3}" \
-      -v header4="${header4}" \
       -v has_trailing_newline="${has_trailing_newline}" '
       BEGIN {
         ORS = ""
+        header1 = ENVIRON["GCS_H1"]; header2 = ENVIRON["GCS_H2"]
+        header3 = ENVIRON["GCS_H3"]; header4 = ENVIRON["GCS_H4"]
         split(disabled_lines, wanted, ",")
         for (i in wanted) {
           disabled[wanted[i]] = 1
@@ -822,7 +1120,10 @@ EOF
       t "無法重寫檔案，未完成處理：${f}" "Could not rewrite file; resolution was not completed: ${f}" >&2
       return 1
     }
-    # `mv` out of $TMPDIR can cross devices and replace the destination mode with mktemp's 0600.
+    # Copy, never `mv`: a rename replaces the destination inode, so the file
+    # would come back as mktemp's 0600 and a symlinked config would be turned
+    # into a regular file. Measured on a same-device rename — it is the inode
+    # swap that does it, not mv's cross-device copy fallback.
     cp "${tmp}" "${f}" || {
       rm -f "${tmp}" || true
       t "無法寫回檔案，未完成處理：${f}" "Could not write the updated file back: ${f}" >&2
@@ -839,6 +1140,21 @@ EOF
 
 apply_selection() {
   local category="$1" value="$2" kind="${3:-file}" shader_src="${4:-}" key="${5:-}"
+  local rc
+  # Ghostty parses `key = ` fine and then ignores it, so an empty value would
+  # show as an active setting that does nothing; `config-file = ` is worse,
+  # since a path that is not there is the whole-config fallback. The TUI editor
+  # already treats empty input as "not set" — this is the same rule for anyone
+  # calling the shell entry point directly.
+  if [ -z "$value" ] || { [ "$kind" = "raw" ] && [ -z "$key" ]; }; then
+    t "沒有值可以套用（空值會被 Ghostty 忽略），沒有任何變更：${category}" \
+      "Nothing to apply — an empty value is silently ignored by Ghostty; nothing was changed: ${category}" >&2
+    return 1
+  fi
+  # Before the snapshot and before any shader is copied: a config whose markers
+  # this tool cannot match must cost the user nothing but the message.
+  _require_sane_markers || return 1
+  _lock_acquire || return 1
   snapshot_config
   if [ -n "$shader_src" ]; then
     mkdir -p "$GHOSTTY_SHADERS"
@@ -850,10 +1166,15 @@ apply_selection() {
   # picking one replaces the whole managed block. Every other category
   # (theme/font/cursor/raw settings like opacity/blur/cursor-style/...)
   # stacks independently alongside each other.
+  rc=0
   if [ "$category" = "preset" ] || [ "$category" = "custom" ]; then
-    set_solo_path_for "$category" "$value" "$kind" "$key"
+    set_solo_path_for "$category" "$value" "$kind" "$key" || rc=1
   else
-    set_path_for "$category" "$value" "$kind" "$key"
+    set_path_for "$category" "$value" "$kind" "$key" || rc=1
+  fi
+  if [ "$rc" -ne 0 ]; then
+    _lock_release
+    return 1
   fi
   # A write that does not survive validation is the dangling-include failure
   # from DESIGN_NOTES.md: Ghostty gives up on the whole config and falls back to
@@ -863,14 +1184,29 @@ apply_selection() {
   # no undo step pointing at the broken write.
   if ! validate_config; then
     if [ -n "$_LAST_SNAPSHOT" ]; then
-      _restore_snapshot "$_LAST_SNAPSHOT" 1 || true
+      _restore_snapshot "$_LAST_SNAPSHOT" 0 || true
+      # The restore regenerates the override include from the block it just put
+      # back, which is right for undo and was wrong here: with two managed
+      # blocks it re-emitted the include into both and left `cycle detected`
+      # on disk under a message claiming the write had been rolled back. So
+      # check the rollback's own work, and if it is still broken, put the
+      # snapshot back byte for byte with nothing layered on top.
+      if ! validate_config; then
+        _restore_snapshot_bytes "$_LAST_SNAPSHOT" || true
+        t "   （回復動作本身也沒通過驗證，已改用原始快照原封不動還原。）" \
+          "   (The rollback itself did not validate either; restored the raw snapshot untouched instead.)" >&2
+      fi
+      rm -f "$_LAST_SNAPSHOT"
     fi
     t "✖ 設定檔驗證失敗，已還原：${category}" \
       "✖ Config validation failed, rolled back: ${category}" >&2
+    _lock_release
     return 1
   fi
   # Advisory only: never let it turn a successful write into a failure.
   warn_if_shadowed "$value" "$kind" "$key" || true
+  _lock_release
+  return 0
 }
 
 # save_current_as DEST — snapshot whatever's currently active (across every
@@ -880,7 +1216,8 @@ apply_selection() {
 # after any theme include inside the preset.
 save_current_as() {
   local dest="$1" raw_f dest_tmp sidecar sidecar_tmp
-  if [ ! -f "$GHOSTTY_CONFIG" ] || ! grep -qF "$BEGIN_MARK" "$GHOSTTY_CONFIG"; then
+  _require_sane_markers || return 1
+  if [ ! -f "$GHOSTTY_CONFIG" ] || [ "$(_marker_fault "$GHOSTTY_CONFIG")" != "ok" ]; then
     t "目前沒有可儲存的選擇，先挑一個主題、字體或游標。" \
       "Nothing currently selected to save — pick a theme, font, or cursor first." >&2
     return 1
@@ -906,11 +1243,19 @@ save_current_as() {
 }
 
 show_current() {
-  if [ -f "$GHOSTTY_CONFIG" ] && grep -qF "$BEGIN_MARK" "$GHOSTTY_CONFIG"; then
+  local fault
+  fault="$(_marker_fault "$GHOSTTY_CONFIG")"
+  if [ "$fault" = "ok" ]; then
     t "目前的 ghostty-picker 選擇：" "Current ghostty-picker selections:"
-    awk -v b="$BEGIN_MARK" -v e="$END_MARK" '$0==b{inb=1;next} $0==e{inb=0;next} inb' "$GHOSTTY_CONFIG"
-  else
+    awk -v b="$BEGIN_MARK" -v e="$END_MARK" \
+      '$0==b{if (!done) inb=1; next} $0==e{if (inb) done=1; inb=0; next} inb' "$GHOSTTY_CONFIG"
+  elif [ "$fault" = "none" ]; then
     t "還沒有任何 ghostty-picker 選擇。" "No ghostty-picker selections set yet."
+  else
+    # Read-only, so this reports rather than refuses — but it must not answer
+    # "nothing selected" for a block it simply cannot parse.
+    _require_sane_markers || true
+    return 1
   fi
 }
 
