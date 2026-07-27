@@ -220,6 +220,15 @@ ANSI-styled input in some terminal environments — observed as both mid-line
 truncation and phantom extra rows (a `Height(31)` render producing 38 lines).
 Boxes here are hand-drawn, using the ANSI-aware `lipgloss.Width()` for padding.
 
+**The status row is budgeted only while a message is on screen.** Leaving it
+unbudgeted was deliberate — a message pushing the footer down one row beats
+permanently shrinking the list — but at exactly 24 rows the footer went off the
+bottom instead. The recompute hangs off the tail of `Update`, the one point
+every event passes through, rather than the couple of dozen places that assign
+`m.status`. Caught by `tui/render_test.go`, which renders `View()` at the
+enforced minimum and counts the lines; the eye had missed it because it only
+shows at exactly the minimum height.
+
 **Anything quoted out of a file we do not own is defused before it is drawn.**
 The conflicts panel prints offending lines verbatim so the user can recognise
 them — and a config value may contain escape sequences. A line holding `ESC[2J`

@@ -1378,6 +1378,7 @@ type model struct {
 	current           map[string]string
 	status            string
 	statusOK          bool
+	statusShown       bool // whether the height budget currently reserves its row
 	width             int
 	height            int
 	lastPreviewKey    string // identity of the entry last rendered into preview
@@ -1773,12 +1774,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.previewWidth = maxInt(innerW-listCard-4, 20)
 		// Rows spent outside the list itself: 2 leading blanks + 4 for the
 		// title band (3 filled rows + its shadow row) + 1 blank + 2 pane
-		// borders + 1 pane label + however many rows the footer needs. The
-		// status row is transient and deliberately not budgeted — a message
-		// just pushes the footer down one row rather than permanently
-		// shrinking the list.
-		m.bodyHeight = m.height - 10 - len(footerRows(innerW))
-		m.list.SetSize(m.listWidth, m.bodyHeight)
+		// borders + 1 pane label + however many rows the footer needs, plus
+		// the status row when there is one. Leaving the status unbudgeted was
+		// deliberate once — a message pushing the footer down beats
+		// permanently shrinking the list — but at exactly 24 rows the footer
+		// went off the bottom instead. It is budgeted only while a message is
+		// actually on screen, so the list still gets the row back afterwards.
+		m.applyBodySize()
 
 	case tea.KeyMsg:
 		if m.showRestartPrompt {
@@ -2055,6 +2057,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastPreviewKey = key
 		m.updatePreviewForSelection()
 	}
+	// A message appearing or clearing changes the height budget by one row.
+	// Handled here, at the one point every update passes through, rather than
+	// at the couple of dozen places that assign m.status.
+	if (m.status != "") != m.statusShown {
+		m.applyBodySize()
+	}
 	return m, cmd
 }
 
@@ -2087,6 +2095,24 @@ func footerRows(w int) []string {
 		rows = append(rows, cur)
 	}
 	return rows
+}
+
+// applyBodySize recomputes the list's height from the window size and whether
+// a status message is currently taking a row. Called on resize and whenever a
+// message appears or clears — the alternative, budgeting the row permanently,
+// costs the list a row it usually does not need.
+func (m *model) applyBodySize() {
+	if m.height == 0 {
+		return
+	}
+	innerW := maxInt(m.width-2*sideMargin, 40)
+	status := 0
+	if m.status != "" {
+		status = 1
+	}
+	m.bodyHeight = m.height - 10 - len(footerRows(innerW)) - status
+	m.statusShown = m.status != ""
+	m.list.SetSize(m.listWidth, m.bodyHeight)
 }
 
 // statusLine renders the current status message, green on success and red

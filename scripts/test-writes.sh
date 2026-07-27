@@ -212,9 +212,14 @@ echo "== the portability gate still passes =="
   && ok "scripts/check.sh" || bad "scripts/check.sh"
 
 echo
-echo "== the TUI still builds and vets =="
+echo "== the TUI still builds, vets and passes its own tests =="
 (cd "$REPO/tui" && go build ./... && go vet ./...) >/dev/null 2>&1 \
   && ok "go build + go vet" || bad "go build/vet"
+# tui/render_test.go is the Go half of this suite: layout budgets at the
+# enforced minimum size, hostile conflict records, and the two performance and
+# escape-sequence defects found by audit.
+(cd "$REPO/tui" && go test ./...) >/dev/null 2>&1 \
+  && ok "go test" || bad "go test (run it directly to see which case)"
 
 echo
 if [ "$fails" -eq 0 ]; then
