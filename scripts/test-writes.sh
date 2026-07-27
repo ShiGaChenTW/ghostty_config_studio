@@ -86,6 +86,63 @@ check "preview prints the directive" "$out" "background-opacity = 0.5"
 check "preview left the config alone" "$([ "$snap" = "$(cat "$GHOSTTY_DIR/config")" ] && echo yes || echo no)" "yes"
 
 echo
+echo "== an explicit choice outranks a shader theme's bundled value =="
+# The reason this suite can assert it at all: +show-config --config-file=X does
+# not work (exits 1, no output), but a sandboxed XDG_CONFIG_HOME does.
+GHOSTTY_BIN=""
+command -v ghostty >/dev/null 2>&1 && GHOSTTY_BIN=$(command -v ghostty)
+[ -z "$GHOSTTY_BIN" ] && [ -x /Applications/Ghostty.app/Contents/MacOS/ghostty ] \
+  && GHOSTTY_BIN=/Applications/Ghostty.app/Contents/MacOS/ghostty
+THEME="$HOME/.config/ghostty-config-studio/assets/shader-themes/config.matrix"
+if [ -z "$GHOSTTY_BIN" ]; then
+  echo "  SKIP  no Ghostty binary — cannot ask what it would resolve"
+elif [ ! -f "$THEME" ]; then
+  echo "  SKIP  shader-themes pack not imported (run ghostty-setup)"
+else
+  # GHOSTTY_DIR is already inside the sandbox; point XDG at its parent so the
+  # config we just wrote is the one Ghostty reads.
+  resolved() { XDG_CONFIG_HOME="$(dirname "$GHOSTTY_DIR")" "$GHOSTTY_BIN" +show-config 2>/dev/null \
+    | awk -v k="$1" '$1==k {print $3}'; }
+  rm -rf "$GHOSTTY_DIR"; mkdir -p "$GHOSTTY_DIR"
+  run "apply_selection theme '$THEME' file" >/dev/null 2>&1
+  check "theme alone keeps its own opacity" "$(resolved background-opacity)" "0.97"
+  run 'apply_selection opacity 0.55 raw "" background-opacity' >/dev/null 2>&1
+  run 'apply_selection cursor-style bar raw "" cursor-style' >/dev/null 2>&1
+  check "explicit opacity wins over the theme" "$(resolved background-opacity)" "0.55"
+  check "explicit cursor-style wins over the theme" "$(resolved cursor-style)" "bar"
+  check "keys the user did not choose keep the theme's value" "$(resolved background-blur)" "true"
+fi
+
+echo
+echo "== the shadowing config can be listed and fixed =="
+# GHOSTTY_SUPPORT_DIR is redirected, so this can never reach the real
+# ~/Library copy — a test that edits that file would be editing the user's.
+export GHOSTTY_SUPPORT_DIR="$SANDBOX/support"
+mkdir -p "$GHOSTTY_SUPPORT_DIR"
+rm -rf "$GHOSTTY_DIR"; mkdir -p "$GHOSTTY_DIR"
+run 'apply_selection opacity 0.7 raw "" background-opacity' >/dev/null 2>&1
+printf 'window-padding-x = 8\nbackground-opacity = 1.0\n# background-opacity = 0.3\n' \
+  > "$GHOSTTY_SUPPORT_DIR/config"
+cp "$GHOSTTY_SUPPORT_DIR/config" "$SANDBOX/shadow-before"
+n=$(run 'list_shadow_conflicts' 2>/dev/null | wc -l | tr -d ' ')
+check "finds the one active conflict" "$n" "1"
+check "ignores the already-commented line" \
+  "$(run 'list_shadow_conflicts' 2>/dev/null | grep -c '0\.3' || true)" "0"
+run 'resolve_shadow_conflicts' >/dev/null 2>&1
+check "conflict is gone afterwards" "$(run 'list_shadow_conflicts' 2>/dev/null | wc -l | tr -d ' ')" "0"
+check "unrelated line survives untouched" \
+  "$(grep -c '^window-padding-x = 8$' "$GHOSTTY_SUPPORT_DIR/config")" "1"
+check "the already-commented line is byte-identical" \
+  "$(grep -c '^# background-opacity = 0\.3$' "$GHOSTTY_SUPPORT_DIR/config")" "1"
+check "nothing was deleted, only commented" \
+  "$(grep -c 'background-opacity = 1\.0' "$GHOSTTY_SUPPORT_DIR/config")" "1"
+check "a backup was taken" \
+  "$(ls "$GHOSTTY_STUDIO_DIR/history" 2>/dev/null | grep -c shadow || true)" "1"
+run 'resolve_shadow_conflicts' >/dev/null 2>&1
+check "resolving with nothing to do returns 1" "$?" "1"
+unset GHOSTTY_SUPPORT_DIR
+
+echo
 echo "== the portability gate still passes =="
 (cd "$REPO" && ./scripts/check.sh >/dev/null 2>&1) \
   && ok "scripts/check.sh" || bad "scripts/check.sh"

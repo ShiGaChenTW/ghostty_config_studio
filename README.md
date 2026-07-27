@@ -117,6 +117,7 @@ Everything imported — and every config you create — lives in
 | `p` | Preview for real: opens a throwaway Ghostty window on the right half of the screen showing the highlighted entry, shaders included. Pressing `p` again replaces it, so previews never stack. Your config is not touched and not even read |
 | `enter` | Apply the selected item |
 | `u` | Undo the last apply — steps back through the last 20 writes |
+| `c` | Review what is overriding your selections, and comment those lines out (`f`, after a confirmation; the file is backed up first) |
 | `s` | Save the current combination as a custom preset |
 | `n` | Create a new config and open the settings editor |
 | `e` | List your editable configs (`d` deletes one) |
@@ -192,17 +193,16 @@ Ghostty for you.
 
 ### Known limitations
 
-- The 12 shader themes bake in their own `background-opacity`,
-  `background-blur` and `cursor-style` as part of their ambiance. Combining one
-  with an independent choice for the same key gives unintuitive precedence, and
-  your explicit pick may lose. They behave predictably on their own, and
-  alongside color themes, built-in themes and presets.
-- macOS reads a second config,
-  `~/Library/Application Support/com.mitchellh.ghostty/config`, **after**
-  `~/.config/ghostty/config`, so any key set there overrides your selection.
-  The tools name the file and the keys when this happens; remove or comment
-  those lines to let the selection through.
 - Only tested on macOS.
+
+Two limitations that stood here until v0.3.0 are gone. The 12 shader themes
+bake in their own `background-opacity`, `background-blur` and `cursor-style`,
+and used to beat an explicit choice for the same key; an explicit pick now wins,
+while any key you did not choose keeps the theme's own value. And the macOS
+config at `~/Library/Application Support/com.mitchellh.ghostty/config`, which
+Ghostty reads **after** `~/.config/ghostty/config` and which therefore overrides
+everything this tool writes, can now be dealt with from inside the workbench —
+press `c`.
 
 ### License
 
@@ -306,6 +306,7 @@ font-size = 13
 | `p` | 真的預覽：在螢幕右半邊開一個用完即丟的 Ghostty 視窗顯示目前這個項目，shader 也看得到。再按一次 `p` 會換掉同一個視窗，不會愈開愈多。你的設定檔完全不會被動到，連讀都不會讀 |
 | `enter` | 套用選中的項目 |
 | `u` | 復原上一次套用，最多可以往回走 20 步 |
+| `c` | 檢視是什麼設定在覆蓋你的選擇，並可把那幾行註解掉（按 `f`，會先確認；動手前整份備份） |
 | `s` | 把目前套用的組合存成自訂 preset |
 | `n` | 新建一個自訂設定檔，進入設定編輯器 |
 | `e` | 列出可編輯的自訂設定檔（可選擇編輯或按 `d` 刪除） |
@@ -374,15 +375,14 @@ config-file = /Users/you/.config/ghostty-config-studio/assets/fonts/iosevka.conf
 
 ### 已知限制
 
-- 12 個 shader 主題各自內建了 `background-opacity` / `background-blur` /
-  `cursor-style` 等「氛圍」設定。同時使用 shader 主題與 `ghostty-window` 這類
-  獨立設定時，同名鍵的優先權判定不直覺，你獨立選的值可能被主題內建值蓋掉。
-  單獨使用、或搭配色彩主題 / 內建主題 / preset 時正常。
-- macOS 上 Ghostty 還會讀第二份設定
-  `~/Library/Application Support/com.mitchellh.ghostty/config`，而且是在
-  `~/.config/ghostty/config` **之後**讀，所以那裡設過的項目會蓋掉你的選擇。
-  遇到時工具會直接指出是哪個檔案、哪幾個 key，把那幾行移除或註解掉就會生效。
 - 只在 macOS 測試過。
+
+原本列在這裡的兩條限制在 v0.3.0 已經解決。12 個 shader 主題內建的
+`background-opacity` / `background-blur` / `cursor-style` 以前會蓋掉你獨立選的
+同名設定，現在**你明確選的值會贏**，而你沒選的鍵仍然保留主題自己的氛圍值。至於
+macOS 那份會在 `~/.config/ghostty/config` **之後**被讀、因此蓋過本工具所有寫入的
+`~/Library/Application Support/com.mitchellh.ghostty/config`，現在可以直接在工作台
+裡處理 —— 按 `c`。
 
 ### 授權
 

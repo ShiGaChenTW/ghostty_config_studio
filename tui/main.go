@@ -950,6 +950,113 @@ func undoLastApply(dir string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// --- Shadow conflicts: the macOS config that outranks the managed block ---
+//
+// apply_selection already detects that ~/Library/Application Support/
+// com.mitchellh.ghostty/config is read after ~/.config/ghostty/config and so
+// beats every key it sets. Detecting it and stopping there was a dead end: the
+// warning told the user to go edit a file it never gave a path for. lib/menu.sh
+// still owns every byte written — these two calls only list and act.
+
+type shadowConflict struct {
+	file string
+	line string // kept as text: it is only ever displayed, and a non-numeric
+	// field from a drifting format should still show rather than drop the row
+	key  string
+	text string
+}
+
+// parseShadowRecords reads list_shadow_conflicts' stdout, and is the only
+// place that knows its format: one record per line, four fields separated by
+// ASCII 0x1F (unit separator), in the order file, line number, key, and the
+// whole offending line verbatim.
+//
+// 0x1F rather than a tab because every printable candidate can legally occur
+// inside a Ghostty path or value — spaces, tabs, `=`, `#`, `|`, `:` — and a
+// control character cannot. The verbatim line comes last so that even a value
+// nobody anticipated cannot be read as a separator.
+//
+// Unparseable input is skipped, never surfaced as an error: this panel is what
+// the user reaches for when their config is already misbehaving, and a format
+// drift should cost them one row rather than the screen that explains the
+// problem.
+func parseShadowRecords(out string) []shadowConflict {
+	var found []shadowConflict
+	for _, raw := range strings.Split(out, "\n") {
+		line := strings.TrimRight(raw, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		f := strings.SplitN(line, "\x1f", 4)
+		if len(f) < 4 {
+			continue
+		}
+		c := shadowConflict{
+			file: strings.TrimSpace(f[0]),
+			line: strings.TrimSpace(f[1]),
+			key:  strings.TrimSpace(f[2]),
+			text: strings.TrimSpace(f[3]),
+		}
+		// A record naming neither a file nor a key describes nothing that can
+		// be shown or fixed.
+		if c.file == "" || c.key == "" {
+			continue
+		}
+		found = append(found, c)
+	}
+	return found
+}
+
+func listShadowConflicts(dir string) ([]shadowConflict, error) {
+	cmd := exec.Command("bash", "-c",
+		fmt.Sprintf(`source %q; list_shadow_conflicts`, filepath.Join(dir, "lib/menu.sh")))
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		detail := firstLine(strings.TrimSpace(stderr.String()))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return nil, fmt.Errorf("%s", detail)
+	}
+	return parseShadowRecords(stdout.String()), nil
+}
+
+// resolveShadowConflicts comments the offending lines out. Same shape as
+// undoLastApply: the bash side owns the backup, the write and the wording, so
+// its one-line summary is shown verbatim rather than reworded here.
+func resolveShadowConflicts(dir string) (string, error) {
+	cmd := exec.Command("bash", "-c",
+		fmt.Sprintf(`source %q; resolve_shadow_conflicts`, filepath.Join(dir, "lib/menu.sh")))
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		detail := firstLine(strings.TrimSpace(stderr.String()))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return "", fmt.Errorf("%s", detail)
+	}
+	return firstLine(strings.TrimSpace(stdout.String())), nil
+}
+
+// conflictFileCounts groups records by file, keeping first-seen order so the
+// confirmation names every file it is about to touch and how much of each.
+// Ghostty reads two candidate paths, so more than one is possible.
+func conflictFileCounts(cs []shadowConflict) ([]string, map[string]int) {
+	var order []string
+	counts := map[string]int{}
+	for _, c := range cs {
+		if _, seen := counts[c.file]; !seen {
+			order = append(order, c.file)
+		}
+		counts[c.file]++
+	}
+	return order, counts
+}
+
 // customPresetDir is where saveCurrentAsCustom writes, and where
 // buildEntries scans for the "custom" category — the on-disk half of the
 // TUI-driven workbench (bash side: `ghostty-custom --save <name>`).
@@ -1213,6 +1320,14 @@ type model struct {
 	// file is irreversible, so it never happens on a single keypress.
 	showDeleteConfirm bool
 	deleteTarget      entry
+
+	// Shadow-conflict panel, opened with `c`. conflictsErr holds the reason
+	// the list could not be read at all, which is a different thing from an
+	// empty list and has to read differently on screen.
+	showConflicts       bool
+	conflicts           []shadowConflict
+	conflictsErr        string
+	showConflictConfirm bool
 }
 
 func newModel(dir string) model {
@@ -1470,6 +1585,38 @@ func (m model) deleteCustomConfig(e entry) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// openConflicts re-reads the list every time rather than caching it: the
+// overriding file is not ours, so anything could have changed it since the
+// warning that sent the user here.
+func (m model) openConflicts() model {
+	conflicts, err := listShadowConflicts(m.dir)
+	m.conflicts, m.conflictsErr = conflicts, ""
+	if err != nil {
+		m.conflictsErr = err.Error()
+	}
+	m.showConflicts = true
+	return m
+}
+
+// fixConflicts is only ever reached from the confirmation dialog, never
+// straight off a keypress.
+func (m model) fixConflicts() (tea.Model, tea.Cmd) {
+	m.showConflictConfirm = false
+	m.showConflicts = false
+	line, err := resolveShadowConflicts(m.dir)
+	if err != nil {
+		m.status = txtFixFailed(err.Error())
+		m.statusOK = false
+		return m, nil
+	}
+	if line == "" {
+		line = txtFixDone()
+	}
+	m.status = line
+	m.statusOK = true
+	return m, nil
+}
+
 // editableEntries lists only the configs that can actually be edited in
 // place: the user's own saved presets. Vendored assets are deliberately
 // excluded — they stay byte-identical to upstream (see NOTICE.md), so
@@ -1598,6 +1745,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.showConflictConfirm {
+			// Checked before the panel that raised it, the same way the
+			// delete confirmation is checked before the edit picker.
+			switch strings.ToLower(msg.String()) {
+			case "y", "enter":
+				return m.fixConflicts()
+			case "n", "esc", "q", "ctrl+c":
+				m.showConflictConfirm = false
+			}
+			return m, nil
+		}
+		if m.showConflicts {
+			// Same modal focus trap as the other overlays: while the panel is
+			// open "q" closes it rather than quitting the program.
+			switch strings.ToLower(msg.String()) {
+			case "esc", "q", "ctrl+c", "c":
+				m.showConflicts = false
+			case "f":
+				// Nothing to confirm when there is nothing to comment out,
+				// and the footer doesn't offer the key in that case either.
+				if len(m.conflicts) > 0 {
+					m.showConflictConfirm = true
+				}
+			}
+			return m, nil
+		}
 		if m.showEditPicker {
 			switch msg.String() {
 			case "esc", "q", "ctrl+c":
@@ -1718,6 +1891,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showEditPicker = true
 				m.editPickIndex = 0
 				return m, nil
+			case key.Matches(msg, key.NewBinding(key.WithKeys("c", "C"))):
+				// `c` is free on both sides: no handler on this screen takes
+				// it, and bubbles/list's own bindings never do either — its
+				// paging keys are h/l/b/f/u/d and the arrows. Uppercase is
+				// bound too, matching the restart hint's y/Y.
+				m = m.openConflicts()
+				return m, nil
 			case m.restartHint && key.Matches(msg, key.NewBinding(key.WithKeys("y", "Y"))):
 				m.restartHint = false
 				m.showRestartPrompt = true
@@ -1746,8 +1926,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							// only about a possible later override — so the
 							// restart offer stays available, as a hint the
 							// warning can sit next to rather than a popup
-							// that would cover it.
-							m.status = warning + "  ·  " + txtRestartHint()
+							// that would cover it. The conflict hint rides
+							// along so the fix is found at the moment the
+							// problem is hit, not by going looking for it.
+							m.status = warning + "  ·  " + txtConflictHint() +
+								"  ·  " + txtRestartHint()
 							m.statusOK = false
 						}
 						m.current = currentSelections(m.dir)
@@ -1817,10 +2000,142 @@ func (m model) statusLine() string {
 	if m.status == "" {
 		return ""
 	}
+	// Clamped to the row it is given. A status message is allowed to push the
+	// footer down one row — that is the budget's one deliberate omission — but
+	// a message that WRAPS costs two, which walks the bottom of the card off
+	// the screen. The override warning is what forced this: the file name plus
+	// the two hints that ride along with it reach 111 columns against an
+	// 80-column minimum.
+	msg := truncate(m.status, maxInt(m.width-2*sideMargin, 20))
 	if m.statusOK {
-		return statusStyle.Render(m.status)
+		return statusStyle.Render(msg)
 	}
-	return errorStyle.Render(m.status)
+	return errorStyle.Render(msg)
+}
+
+// elidePath shortens a path from the middle rather than the end. The two files
+// Ghostty reads here differ only in their last characters — config against
+// config.ghostty — so a plain right-hand truncation draws them as the same row
+// twice, in the one dialog where knowing which file is being written matters.
+func elidePath(p string, w int) string {
+	if lipgloss.Width(p) <= w {
+		return p
+	}
+	base := filepath.Base(p)
+	if lipgloss.Width(base)+1 >= w {
+		// Not even the file name fits; keep its tail, which is the part that
+		// tells the two apart.
+		r := []rune(base)
+		for len(r) > 0 && lipgloss.Width("…"+string(r)) > w {
+			r = r[1:]
+		}
+		return "…" + string(r)
+	}
+	head := []rune(strings.TrimSuffix(p, base))
+	for len(head) > 0 && lipgloss.Width(string(head)+"…"+base) > w {
+		head = head[:len(head)-1]
+	}
+	return string(head) + "…" + base
+}
+
+// conflictRow lays out one offending line: line number, the key it sets, then
+// the line itself. Each field is truncated before it is padded, so a long path
+// or a long value cannot push the row past the frame box() draws around it, and
+// padRight counts display columns — a rune count would leave every row after a
+// CJK label ragged.
+func conflictRow(c shadowConflict, w int) string {
+	num := padRight(truncate(c.line, 5), 6)
+	keyW := minInt(maxInt(w/3, 10), 24)
+	keyCol := padRight(truncate(c.key, keyW), keyW+2)
+	textW := maxInt(w-2-lipgloss.Width(num)-lipgloss.Width(keyCol), 8)
+	return helpStyle.Render("  "+num) +
+		phosphorStyle.Render(keyCol) +
+		errorStyle.Render(truncate(c.text, textW))
+}
+
+// conflictsPanel lists what is overriding the managed block. An empty result
+// says so in a sentence rather than showing an empty box, which would read as a
+// broken panel instead of as good news.
+func (m model) conflictsPanel() string {
+	rowW := maxInt(m.width-14, 24)
+	var v []string
+	v = append(v, bracket(txtConflictsTitle()))
+
+	footer := txtConflictsFooterClean()
+	switch {
+	case m.conflictsErr != "":
+		v = append(v, "")
+		v = append(v, errorStyle.Render(truncate(txtConflictsFailed(m.conflictsErr), rowW)))
+	case len(m.conflicts) == 0:
+		v = append(v, "")
+		v = append(v, phosphorStyle.Render(truncate(txtConflictsNone(), rowW)))
+		v = append(v, helpStyle.Render(truncate(txtConflictsNoneHint(), rowW)))
+	default:
+		footer = txtConflictsFooter()
+		v = append(v, helpStyle.Render(truncate(txtConflictsBody1(), rowW)))
+		v = append(v, helpStyle.Render(truncate(txtConflictsBody2(), rowW)))
+		v = append(v, "")
+		// The overlay is centred by lipgloss.Place, which does not scroll, so
+		// the rows are budgeted against the window rather than the list length:
+		// past the budget the box would run off both ends of the screen.
+		budget := maxInt(m.height-12, 4)
+		used, shown, lastFile := 0, 0, ""
+		for _, c := range m.conflicts {
+			need := 1
+			if c.file != lastFile {
+				need = 2 // this file needs a heading of its own first
+			}
+			if used+need > budget {
+				break
+			}
+			if c.file != lastFile {
+				lastFile = c.file
+				v = append(v, labelStyle.Render(elidePath(c.file, rowW)))
+			}
+			v = append(v, conflictRow(c, rowW))
+			used += need
+			shown++
+		}
+		if rest := len(m.conflicts) - shown; rest > 0 {
+			v = append(v, helpStyle.Render(txtConflictsMore(rest)))
+		}
+	}
+	v = append(v, "")
+	v = append(v, helpStyle.Render(footer))
+
+	content := strings.Join(v, "\n")
+	w := minInt(maxInt(lipglossMaxWidth(v)+2, 56), m.width-8)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+		box(content, w, len(v)))
+}
+
+// conflictConfirm names the whole of what is about to happen before any of it
+// happens — how many lines, in which files, commented rather than removed, and
+// backed up first. Everything else this tool writes stays inside its own
+// managed block; this one does not, so it asks first.
+func (m model) conflictConfirm() string {
+	rowW := maxInt(m.width-14, 24)
+	var v []string
+	v = append(v, bracket(txtFixTitle()))
+	v = append(v, "")
+	v = append(v, phosphorStyle.Render(truncate(txtFixAsk(len(m.conflicts)), rowW)))
+	files, counts := conflictFileCounts(m.conflicts)
+	for _, f := range files {
+		suffix := "  " + txtFixFileCount(counts[f])
+		path := elidePath(f, maxInt(rowW-2-lipgloss.Width(suffix), 12))
+		v = append(v, phosphorStyle.Render("  "+path)+helpStyle.Render(suffix))
+	}
+	v = append(v, "")
+	v = append(v, helpStyle.Render(truncate(txtFixNotDeleted(), rowW)))
+	v = append(v, helpStyle.Render(truncate(txtFixBackup(), rowW)))
+	v = append(v, errorStyle.Render(truncate(txtFixOutside(), rowW)))
+	v = append(v, "")
+	v = append(v, errorStyle.Render(txtFixYes())+"   "+helpStyle.Render(txtFixNo()))
+
+	content := strings.Join(v, "\n")
+	w := minInt(maxInt(lipglossMaxWidth(v)+2, 52), m.width-8)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+		box(content, w, len(v)))
 }
 
 func (m model) View() string {
@@ -1840,6 +2155,12 @@ func (m model) View() string {
 	}
 	if m.showTagPanel {
 		return m.tagPanel()
+	}
+	if m.showConflictConfirm {
+		return m.conflictConfirm()
+	}
+	if m.showConflicts {
+		return m.conflictsPanel()
 	}
 	if m.showDeleteConfirm {
 		t := m.deleteTarget

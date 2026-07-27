@@ -42,6 +42,25 @@ between makes no difference; the include's value always lands last. So a
 setting that arrives through an include can never outrank one assigned
 directly, and a reset in the parent cannot clear what an include brought in.
 
+**The full precedence rule, measured rather than inferred.** Ghostty 1.3.1,
+established by pointing `XDG_CONFIG_HOME` at a sandbox and reading back
+`+show-config`:
+
+| Situation | Winner |
+|---|---|
+| Two `config-file` includes | the later include |
+| Direct assignment vs an include that sets the same key | the include, wherever the assignment sits |
+| Theme include, then a generated override include after it | the override |
+| `config-file` nested inside an include vs the parent's later include | the nested one — depth beats order |
+
+The second row is why a scalar setting could never be made to win by restating
+it directly in the managed block, and the third is the fix: an explicit choice
+has to travel through an include of its own, emitted last.
+
+Note `+show-config --config-file=X` does not work for this — it exits 1 with no
+output. Sandbox `XDG_CONFIG_HOME` instead; that is the only way to ask Ghostty
+what it would resolve for a config that is not the user's real one.
+
 **`font-family` is a list, and the first entry wins.** A second
 `font-family = X` appends a fallback rather than replacing. Combined with the
 rule above, a font pack applied through an include was invisible to anyone who
@@ -67,6 +86,32 @@ dialog the silent path pops automatically.
 **An empty value is worse than an error.** Writing `key = ` parses fine and is
 then silently ignored by Ghostty, so the UI would show a setting as active
 while it does nothing. The editor treats an empty input as "not set".
+
+## Winning against a theme, and against the other config
+
+**An explicit choice travels through an override include, emitted last.** Raw
+scalar settings used to be written as plain `key = value` lines in the managed
+block, where the precedence table above guarantees they lose to any include —
+including the shader theme the user is trying to override. They are now
+collected into one generated file that the block includes after everything else,
+which is the only position that wins. Keys the user did not choose are not in
+that file, so a theme keeps its own ambiance for everything the user stayed
+silent about.
+
+**Commenting out the shadowing config is the one write outside the markers.**
+`~/Library/Application Support/com.mitchellh.ghostty/config` is not ours, so:
+the whole file is backed up into the history directory first, only lines already
+reported as conflicting are touched, they are prefixed rather than deleted, and
+a header block names the backup and the way back. A line that is already
+commented out is not a conflict and is left exactly as it is. `GHOSTTY_SUPPORT_DIR`
+exists so a test can plant a fake one — a suite asserting that this tool edits
+that file must never be able to reach the real copy.
+
+**The conflict records use ASCII 0x1F, not a tab.** A Ghostty path or value may
+legally contain spaces, tabs, `=`, `#`, `|` and `:` — every printable candidate
+can occur inside a field, and a control character cannot. The verbatim line is
+the last field so that even an unanticipated value cannot be read as a
+separator.
 
 ## Safety net around the write
 

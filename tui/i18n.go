@@ -221,21 +221,24 @@ func txtDefaultValue() string { return tr("預設值：", "Default:") }
 // Footers.
 
 // txtBrowserFooterParts returns one hint per element rather than one joined
-// line: eleven hints need 131 (zh) / 134 (en) columns, so at the enforced
+// line: twelve hints need 141 (zh) / 149 (en) columns, so at the enforced
 // 80-column minimum the footer has to be packed into more than one row —
-// see footerRows, which decides how many.
+// see footerRows, which decides how many. Both languages pack into two rows
+// there, and the height budget in the WindowSizeMsg handler counts them, so a
+// hint whose wording tips a row over costs the list a row: [c] is abbreviated
+// harder in Chinese than in English for exactly that reason.
 func txtBrowserFooterParts() []string {
 	if lang == langEN {
 		return []string{
 			"[↑/↓] move", "[/] search", "[t] tags", "[p] preview",
 			"[enter] apply", "[u] undo", "[s] save current", "[n] new config",
-			"[e] edit", "[L] 中文", "[q] quit",
+			"[e] edit", "[c] conflicts", "[L] 中文", "[q] quit",
 		}
 	}
 	return []string{
 		"[↑/↓] 移動", "[/] 搜尋", "[t] 標籤", "[p] 預覽",
 		"[enter] 套用", "[u] 復原", "[s] 存目前組合", "[n] 新設定檔",
-		"[e] 編輯設定", "[L] English", "[q] 離開",
+		"[e] 編輯設定", "[c] 衝突", "[L] English", "[q] 離開",
 	}
 }
 
@@ -269,6 +272,89 @@ func txtRestartNo() string  { return tr("[n] 否，稍後手動重啟", "[n] no,
 // succeed — only some other config may override it — so a restart is still
 // worth offering, just not as an automatic popup.
 func txtRestartHint() string { return tr("重啟請按 Y", "press Y to restart") }
+
+// txtConflictHint rides along with the override warning. The warning used to
+// name the problem and stop there, leaving the user to find a file it never
+// gave a path for; this is the pointer at the panel that can list the lines and
+// comment them out. Lowercase c to match the footer's own [c].
+func txtConflictHint() string { return tr("按 c 看衝突", "press c to review") }
+
+// Shadow-conflict panel.
+
+func txtConflictsTitle() string {
+	return tr("覆蓋你選擇的設定", "config overriding your selections")
+}
+
+// Two separate lines rather than one string with a newline in it: the overlay
+// boxes are drawn from a []string whose length is also the box height, so an
+// embedded newline would render one row past the frame.
+func txtConflictsBody1() string {
+	return tr("Ghostty 讀完 ~/.config/ghostty/config 之後還會讀下面這個檔案，",
+		"Ghostty reads the file below AFTER ~/.config/ghostty/config,")
+}
+func txtConflictsBody2() string {
+	return tr("所以這幾行會蓋過這裡選的設定。",
+		"so these lines win over anything selected here.")
+}
+func txtConflictsNone() string {
+	return tr("沒有任何設定在覆蓋你的選擇。", "Nothing is overriding your selections.")
+}
+func txtConflictsNoneHint() string {
+	return tr("macOS 專屬的那個設定檔沒有設到這裡會用到的項目。",
+		"The macOS-specific config sets none of the keys used here.")
+}
+func txtConflictsFailed(detail string) string {
+	return tr("讀不到衝突清單："+detail, "Couldn't read the conflict list: "+detail)
+}
+func txtConflictsMore(n int) string {
+	if lang == langEN {
+		return "… and " + plural(n, "more line", "more lines")
+	}
+	return "…另外還有 " + itoa(n) + " 行"
+}
+func txtConflictsFooter() string {
+	return tr("[f] 把這幾行註解掉  [esc] 關閉", "[f] comment these lines out  [esc] close")
+}
+func txtConflictsFooterClean() string { return tr("[esc] 關閉", "[esc] close") }
+
+// Fix confirmation. This is the only write in the tool that lands outside its
+// own managed block, so the dialog spells out the whole of what is about to
+// happen — count, files, commented not deleted, backup first — before it does
+// any of it.
+
+func txtFixTitle() string { return tr("註解掉覆蓋的設定", "comment out the overriding lines") }
+func txtFixAsk(n int) string {
+	if lang == langEN {
+		return "Comment out " + plural(n, "line", "lines") + " in:"
+	}
+	return "要註解掉 " + itoa(n) + " 行，位置在："
+}
+func txtFixFileCount(n int) string {
+	if lang == langEN {
+		return "(" + plural(n, "line", "lines") + ")"
+	}
+	return "（" + itoa(n) + " 行）"
+}
+func txtFixNotDeleted() string {
+	return tr("那幾行只會前面加上 #，不會被刪掉。",
+		"Those lines get a # in front; nothing is deleted.")
+}
+func txtFixBackup() string {
+	return tr("動手之前會先整份備份該檔案。", "The whole file is backed up first.")
+}
+func txtFixOutside() string {
+	return tr("⚠ 這是本工具第一次寫入自己管理區塊以外的檔案。",
+		"⚠ This is the first time this tool writes outside its own managed block.")
+}
+func txtFixYes() string                 { return tr("[y] 確定，註解掉", "[y] yes, comment them out") }
+func txtFixNo() string                  { return tr("[n] 取消", "[n] cancel") }
+func txtFixFailed(detail string) string { return tr("修正失敗："+detail, "Fix failed: "+detail) }
+
+// txtFixDone is only reached if resolve_shadow_conflicts succeeds while
+// printing nothing; normally its own summary line is shown verbatim instead.
+func txtFixDone() string {
+	return tr("已註解掉覆蓋的設定", "Commented out the overriding lines")
+}
 
 func txtConfirmFoot() string {
 	return tr("[enter] 確定   [esc] 取消", "[enter] confirm   [esc] cancel")
