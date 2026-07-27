@@ -207,6 +207,35 @@ else
 fi
 
 echo
+echo "== a malformed managed block stops the shadow resolver too =="
+# apply_selection refuses a BEGIN with no END, but the resolver read to EOF and
+# treated every line below the marker as a managed decision — then commented
+# those keys out of the user's Application Support config, the one file this
+# tool writes outside its own markers.
+export GHOSTTY_SUPPORT_DIR="$SANDBOX/support2"
+mkdir -p "$GHOSTTY_SUPPORT_DIR"
+rm -rf "$GHOSTTY_DIR"; mkdir -p "$GHOSTTY_DIR"
+printf '# >>> ghostty-picker managed >>>\n# category:opacity\nbackground-opacity = 0.5\nfont-size = 14\n' \
+  > "$GHOSTTY_DIR/config"
+printf 'font-size = 20\nwindow-padding-x = 4\n' > "$GHOSTTY_SUPPORT_DIR/config"
+before=$(md5 -q "$GHOSTTY_SUPPORT_DIR/config")
+run 'resolve_shadow_conflicts' >/dev/null 2>&1
+check "the user's own config is left alone" "$(md5 -q "$GHOSTTY_SUPPORT_DIR/config")" "$before"
+unset GHOSTTY_SUPPORT_DIR
+
+echo
+echo "== clearing a pack matches whole path segments, not substrings =="
+# Clearing under ".../bet" used to clear a live selection in ".../beta".
+rm -rf "$GHOSTTY_DIR"; mkdir -p "$GHOSTTY_DIR" "$SANDBOX/beta"
+printf 'background = #123456\n' > "$SANDBOX/beta/theme.conf"
+run "apply_selection theme '$SANDBOX/beta/theme.conf' file" >/dev/null 2>&1
+run "clear_categories_under '$SANDBOX/bet'" >/dev/null 2>&1
+check "a prefix of another pack's name clears nothing" \
+  "$(run 'current_path_for theme' 2>/dev/null)" "$SANDBOX/beta/theme.conf"
+run "clear_categories_under '$SANDBOX/beta'" >/dev/null 2>&1
+check "the real pack path still clears" "$(run 'current_path_for theme' 2>/dev/null)" ""
+
+echo
 echo "== the portability gate still passes =="
 (cd "$REPO" && ./scripts/check.sh >/dev/null 2>&1) \
   && ok "scripts/check.sh" || bad "scripts/check.sh"

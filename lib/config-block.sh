@@ -234,8 +234,12 @@ clear_categories_under() {
   _lock_acquire || return 1
   while IFS="$us" read -r cat value; do
     [ -n "$cat" ] || continue
+    # Anchored with a trailing slash, not a bare substring: removing a pack
+    # under ".../assets/bet" would otherwise clear a live selection pointing
+    # into ".../assets/beta", and clearing a category the user still wants is
+    # how a working setup quietly loses a theme.
     case "$value" in
-      *"$prefix"*) ;;
+      "$prefix"/*|"$prefix") ;;
       *)
         # A saved custom preset is a file of its own that names the pack file
         # from inside itself, so the managed block's line never mentions the
@@ -244,7 +248,9 @@ clear_categories_under() {
         # Ghostty answers a missing config-file by abandoning the entire
         # config. One level of include is as deep as save_current_as ever
         # writes, so one level is what this follows.
-        [ -f "$value" ] && grep -qF "$prefix" "$value" || continue
+        # Same anchoring inside a preset's own lines: match the prefix only
+        # where it is followed by a path separator.
+        [ -f "$value" ] && grep -qF "${prefix}/" "$value" || continue
         ;;
     esac
     clear_category "$cat" || continue

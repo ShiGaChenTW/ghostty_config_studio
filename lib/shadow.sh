@@ -129,6 +129,14 @@ list_shadow_conflicts() {
   local kind key value decided_key other line lineno
 
   [ -f "${config}" ] || return 0
+  # The same marker sanity apply_selection demands, for the same reason and
+  # then some. With a BEGIN and no END, _managed_block_decisions reads to the
+  # end of the file, so every line below the marker looks like a managed
+  # decision — and the resolver would then comment those keys out of the
+  # user's Application Support config, which is the one file this tool writes
+  # outside its own markers. Refusing to guess where the block ends has to
+  # apply here too, not only on the write path.
+  _require_sane_markers >/dev/null 2>&1 || return 0
 
   us="$(printf '\037')"
   keys=$'\n'
